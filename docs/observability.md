@@ -55,7 +55,7 @@ jq -c 'select(.event=="done")' /data/logs/run-*.jsonl | jq -s 'sort_by(-.millis)
 | `agentcore_conversations` | gauge | 内存中缓存的会话数 |
 | `agentcore_runs_started_total` | counter | 累计启动的运行 |
 | `agentcore_runs_finished_total{reason}` | counter | 按停止原因归类：`max_rounds` / `stop_word` / `timeout` / `external` / `error` / `unknown` / `other` |
-| `agentcore_run_failures_total` | counter | 异常结束（含模型不可用） |
+| `agentcore_run_failures_total{code}` | counter | 异常结束，按失败类型分开：`model_unavailable` / `timeout` / `bad_request` / `internal`（口径与 SSE `error.code` 一致） |
 | `agentcore_run_duration_seconds` | histogram | 运行耗时，桶 5s→1800s |
 | `agentcore_tool_calls_total` | counter | 工具调用次数 |
 | `agentcore_model_retries_total` | counter | 模型重试次数 |
@@ -79,6 +79,7 @@ jq -c 'select(.event=="done")' /data/logs/run-*.jsonl | jq -s 'sort_by(-.millis)
 | --- | --- | --- |
 | `agentcore_active_runs == limit` 持续 10 分钟 | 说明一直有人被 429，机器不够或任务卡住 | 10min |
 | `increase(agentcore_run_failures_total[15m]) > 3` | 连续失败通常是模型端点挂了/Key 失效 | 3 次 |
+| `increase(agentcore_run_failures_total{code="model_unavailable"}[15m]) > 0` | 这一类**重发无用**，只能人介入：看到就该去看模型服务，而不是等它自己好 | 1 次 |
 | `jvm_memory_used_bytes / jvm_memory_max_bytes > 0.9` 持续 5 分钟 | 纯 CPU 推理 + 长上下文容易堆爆 | 0.9 |
 
 ## 五、Prometheus 接入

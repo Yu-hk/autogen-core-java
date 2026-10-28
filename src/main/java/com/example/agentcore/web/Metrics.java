@@ -30,7 +30,7 @@ final class Metrics {
     private final Map<String, LongAdder> httpByStatus = new ConcurrentHashMap<>();
     private final Map<String, LongAdder> runsByReason = new ConcurrentHashMap<>();
     private final LongAdder runsStarted = new LongAdder();
-    private final LongAdder runFailures = new LongAdder();
+    private final Map<String, LongAdder> runFailures = new ConcurrentHashMap<>();
     private final LongAdder toolCalls = new LongAdder();
     private final LongAdder modelRetries = new LongAdder();
     private final LongAdder sseStreams = new LongAdder();
@@ -67,8 +67,12 @@ final class Metrics {
         }
     }
 
-    void runFailed(long millis) {
-        runFailures.increment();
+    /**
+     * @param code 失败类型（{@link RunFailure#code()}），作为 label 保留下来：
+     *             "本月失败 40 次"没有行动价值，"失败 40 次里 35 次是模型不可用"才有
+     */
+    void runFailed(String code, long millis) {
+        runFailures.computeIfAbsent(code == null ? "internal" : code, k -> new LongAdder()).increment();
         // 失败的耗时也要进直方图，否则 p99 只统计了成功的那些，看起来比实际乐观
         runFinished("error", millis);
     }
@@ -128,7 +132,6 @@ final class Metrics {
         gauge(sb, "agentcore_conversations", "内存中缓存的会话数", conversations);
 
         counter(sb, "agentcore_runs_started_total", "累计启动的运行数", runsStarted.sum());
-        counter(sb, "agentcore_run_failures_total", "累计异常结束的运行数", runFailures.sum());
         counter(sb, "agentcore_tool_calls_total", "累计工具调用数", toolCalls.sum());
         counter(sb, "agentcore_model_retries_total", "累计模型重试次数", modelRetries.sum());
         counter(sb, "agentcore_sse_streams_total", "累计 SSE 连接数", sseStreams.sum());
@@ -138,6 +141,13 @@ final class Metrics {
                 .append("# TYPE agentcore_runs_finished_total counter\n");
         for (Map.Entry<String, LongAdder> entry : new TreeMap<>(runsByReason).entrySet()) {
             sb.append("agentcore_runs_finished_total{reason=\"").append(entry.getKey()).append("\"} ")
+                    .append(fmt(entry.getValue().sum())).append('\n');
+        }
+
+        sb.append("# HELP agentcore_run_failures_total 按失败类型统计的异常结束运行数\n")
+                .append("# TYPE agentcore_run_failures_total counter\n");
+        for (Map.Entry<String, LongAdder> entry : new TreeMap<>(runFailures).entrySet()) {
+            sb.append("agentcore_run_failures_total{code=\"").append(entry.getKey()).append("\"} ")
                     .append(fmt(entry.getValue().sum())).append('\n');
         }
 

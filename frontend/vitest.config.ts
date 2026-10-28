@@ -10,6 +10,10 @@ import { defineConfig } from 'vitest/config';
  * localStorage / EventSource 的用例在文件头用 `// @vitest-environment jsdom` 单独声明。</p>
  */
 export default defineConfig({
+  // vite-node 默认把编译中间产物写到系统临时目录。本机安全策略会拒绝写那里（EPERM），
+  // 更难受的是失败方式是**静默的**：被拦住的测试文件在全量运行里直接不出现，
+  // 单跑却全绿。指到项目内之后就不会再碰系统临时目录。
+  cacheDir: '.vitest-cache',
   test: {
     environment: 'node',
     // 分开写两条而不是 {ts,tsx}：大括号写法在这套 vitest 上没匹配到 .tsx，

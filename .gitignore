@@ -3,6 +3,8 @@ target/
 !.mvn/wrapper/maven-wrapper.jar
 frontend/node_modules/
 frontend/dist/
+# vite-node 的编译中间产物（从系统临时目录挪过来的，见 frontend/vitest.config.ts）
+frontend/.vitest-cache/
 
 # 说明：src/main/resources/static 是 npm run build 的输出，但**要提交**。
 # 理由：mvn package 直接读它打 jar，不提交的话"只跑 Maven 不跑 npm"就得到一个没有页面的 jar。

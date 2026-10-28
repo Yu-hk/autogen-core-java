@@ -39,7 +39,8 @@ import java.util.concurrent.locks.ReentrantLock;
  *   <li>{@code event} 过程事件（发言开始/结束）</li>
  *   <li>{@code tool} 工具请求与结果</li>
  *   <li>{@code retry} 模型调用失败、即将重试</li>
- *   <li>{@code done} / {@code error} 收尾</li>
+ *   <li>{@code done} / {@code error} 收尾；{@code error} 带 {@code code}（见 {@link RunFailure}）
+ *       与 {@code requestId}，页面据此给出不同的下一步建议</li>
  * </ul>
  */
 public final class RunSession {
@@ -364,12 +365,22 @@ public final class RunSession {
         terminal = true;
     }
 
-    public void error(String message) {
+    public void error(String code, String message, String requestId) {
         this.state = "error";
         ObjectNode node = base("error");
+        // code 是页面的决策依据（重发 / 改输入 / 找人），放在 message 前面便于阅读抓包
+        node.put("code", code);
         node.put("message", message);
+        if (requestId != null && !requestId.isBlank()) {
+            node.put("requestId", requestId);
+        }
         push(node, true);
         terminal = true;
+    }
+
+    /** 不带类型的失败：一律算 {@code internal}，保留给演示路径与测试。 */
+    public void error(String message) {
+        error(RunFailure.INTERNAL.code(), message, null);
     }
 
     private ObjectNode base(String kind) {

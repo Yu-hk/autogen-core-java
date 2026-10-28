@@ -92,6 +92,15 @@ export interface RunResponse {
   error?: string;
 }
 
+/**
+ * 一次运行失败的类型。
+ *
+ * 取值与服务端 `RunFailure` 一一对应。前端只认这四个，遇到不认识的值
+ * （比如服务端先上了新类型、静态资源还是旧的）按 `internal` 处理——
+ * 宁可少一句精准引导，也不能让页面卡在一个没有分支的 code 上。
+ */
+export type ErrorCode = 'model_unavailable' | 'timeout' | 'bad_request' | 'internal';
+
 export type StreamEvent =
   | { kind: 'status'; detail?: string }
   | { kind: 'route'; scenario?: string; title?: string; reason?: string }
@@ -137,7 +146,14 @@ export type StreamEvent =
       retries?: number;
       stopReason?: string;
     }
-  | { kind: 'error'; message?: string }
+  | {
+      kind: 'error';
+      /** 失败类型，页面据此给不同的下一步建议；服务端没给时按 internal 处理 */
+      code?: ErrorCode;
+      message?: string;
+      /** 发起这次运行的请求 id，用户报障时凭它捞服务端日志 */
+      requestId?: string;
+    }
   // 断线太久、服务端已把那段事件滚出保留窗口：页面应重拉一次完整对话再继续
   | { kind: 'resync'; seq?: number; message?: string }
   // 会话已回收（服务重启或这轮结束太久）：重新发起即可，重连没有意义

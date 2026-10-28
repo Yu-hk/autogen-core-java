@@ -73,7 +73,8 @@ docker compose up -d --build
 | 密钥外置 | 配置里只写 `${TOOL_BAIDU_AK:}` 这类占位符；真实值走环境变量或 `agent.local.properties`（已 gitignore） | 第三章 |
 | 断线续传 | SSE 每条事件带序号，浏览器重连带 `Last-Event-ID`，服务端从断点补发；补不了会发 `resync`，会话没了发 `expired` | **[docs/api.md](docs/api.md)** 第三节 |
 | 接口契约 | `GET /api/openapi.json`（OpenAPI 3.1，可直接导入 Postman/Apifox）；人读版 | **[docs/api.md](docs/api.md)** |
-| 前端测试 | `cd frontend && npm test`（vitest，21 条：纯函数 / 口令与 401 / SSE 状态 / DOM id 契约） | — |
+| 失败分类 | `error` 事件带 `code`（模型不可用 / 超时 / 参数不成立 / 内部）+ `requestId`，页面按类型给不同的下一步建议 | **[docs/api.md](docs/api.md)** 第三节 |
+| 前端测试 | `cd frontend && npm test`（vitest，29 条：纯函数 / 口令与 401 / SSE 状态 / 失败引导 / DOM id 契约） | — |
 
 ```bash
 # 看指标（要口令）

@@ -18,6 +18,7 @@ import {
   stopRun,
 } from './api';
 import type { Health, Scenario, ScenarioMember, Snapshot, StreamEvent } from './types';
+import { hintFor } from './errorHint';
 import {
   AgentItem,
   Bubble,
@@ -393,10 +394,18 @@ export default function App() {
     });
   }
 
-  function showError(message: string) {
-    setPhase('出错了');
-    setStopReason(message);
-    pushDivider('错误：' + message);
+  /**
+   * 出错收尾。
+   *
+   * @param detail 技术原文，进分隔线（排查用）
+   * @param title  状态栏短标题，说明是哪种失败
+   * @param next   下一步建议；没有时退回原文
+   */
+  function showError(detail: string, title = '出错了', next?: string) {
+    setPhase(title);
+    // 顶部状态栏是最先被看到的位置，放"该做什么"比放"哪里错了"更有用
+    setStopReason(next || detail);
+    pushDivider('错误：' + detail);
     setRunningBoth(false);
     document.querySelectorAll('.snap button').forEach((b) => {
       (b as HTMLButtonElement).disabled = false;
@@ -710,20 +719,31 @@ export default function App() {
         finish();
         void loadSnapshots();
         break;
-      case 'error':
-        showError(data.message || '未知错误');
-        addTimeline('err', data.message || '未知错误');
+      case 'error': {
+        // 分类先于文案：同样的原文配上不同的 code，用户该做的事完全不同
+        const hint = hintFor(data.code);
+        const request = data.requestId ? ' · 请求 ID ' + data.requestId : '';
+        showError(
+          (data.message || '未知错误') + request,
+          hint.title,
+          hint.hint + request,
+        );
+        addTimeline('err', hint.hint);
         finish();
         break;
+      }
       case 'resync':
         // 断太久，服务端已经把那段事件滚出去了：补不了，重拉一次完整对话再往后跟
         addTimeline('speak', data.message || '事件缺口，重新拉取完整对话');
         void restoreConversation(conversationIdRef.current || undefined);
         break;
       case 'expired':
-        showError(data.message || '这次运行的连接已失效，重新发起即可。');
+        showError(
+          data.message || '这次运行的连接已失效，重新发起即可。',
+          '连接已失效',
+          '服务可能重启过。重新发一次即可，不用等它自己恢复。',
+        );
         addTimeline('err', '连接已失效 · 服务可能重启过');
-        setPhase('连接已失效');
         finish();
         break;
       default:

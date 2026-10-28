@@ -154,7 +154,7 @@
       },
       "StreamEvent": {
         "type": "object",
-        "description": "SSE 的 data 是一行一个 JSON，字段随 kind 变化。所有事件都带 seq（断点续传的游标）。",
+        "description": "SSE 的 data 是一行一个 JSON，字段随 kind 变化。所有事件都带 seq（断点续传的游标）。kind=error 时额外带 code（见 ErrorCode）与 requestId：前者决定页面给什么下一步建议，后者是发起这次运行的那次 HTTP 请求的 id（响应头 X-Request-Id），报障时凭它捞服务端日志。",
         "required": ["kind", "seq"],
         "properties": {
           "kind": {
@@ -164,8 +164,21 @@
               "tool", "retry", "done", "error", "resync", "expired"
             ]
           },
-          "seq": { "type": "integer", "description": "事件序号，从 1 连续递增" }
+          "seq": { "type": "integer", "description": "事件序号，从 1 连续递增" },
+          "code": { "$ref": "#/components/schemas/ErrorCode" },
+          "requestId": { "type": "string", "description": "仅 kind=error，发起运行那次请求的 X-Request-Id" }
         }
+      },
+      "ErrorCode": {
+        "type": "string",
+        "description": "失败类型。判据是用户下一步该做什么，不是异常类名：重发 / 改输入 / 找人。新增类型只往后加，不改名（页面按它选文案，认不出的值按 internal 处理）。",
+        "enum": ["model_unavailable", "timeout", "bad_request", "internal"],
+        "x-enum-descriptions": [
+          "模型没连上或没配好：重发没用，要先让模型服务可用",
+          "跑太久或模型卡住：缩小任务范围再发一次",
+          "输入或参数不成立：改掉再发，原样重发还是同样的错",
+          "认不出来的兜底：可以重发，持续出现就查日志"
+        ]
       },
       "Metrics": {
         "type": "string",

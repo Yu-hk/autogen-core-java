@@ -1104,7 +1104,8 @@ public final class AgentWebServer implements AutoCloseable {
                         int maxRounds, Path resumeFrom, String task, Conversation conversation,
                         Path pickedWorkspace) {
         // traceId 在这里取：lambda 会跑到线程池的另一个线程上，那时 ThreadLocal 已经没了
-        RunLog log = new RunLog(session.id(), runLogFile, RequestLog.currentId());
+        String requestId = RequestLog.currentId();
+        RunLog log = new RunLog(session.id(), runLogFile, requestId);
         metrics.runStarted();
         pool.submit(() -> {
             long startedAt = System.currentTimeMillis();
@@ -1136,9 +1137,12 @@ public final class AgentWebServer implements AutoCloseable {
                 try {
                     config = modelSource.resolve();
                 } catch (ModelUnavailable e) {
-                    session.error(e.getMessage() + "。请改 agent.properties 的 model.* 配置后重启服务。");
-                    log.note("模型不可用：" + e.getMessage());
-                    metrics.runFailed(System.currentTimeMillis() - startedAt);
+                    String reason = e.getMessage() + "。请改 agent.properties 的 model.* 配置后重启服务。";
+                    // 先记账再宣布：error 事件一推出去，客户端随时可能来抓 /api/metrics
+                    log.failed(RunFailure.MODEL_UNAVAILABLE.code(), reason);
+                    metrics.runFailed(RunFailure.MODEL_UNAVAILABLE.code(),
+                            System.currentTimeMillis() - startedAt);
+                    session.error(RunFailure.MODEL_UNAVAILABLE.code(), reason, requestId);
                     return;
                 }
                 log.start(scenario.id(), config.provider(), config.model(), rounds, actual);
@@ -1154,9 +1158,10 @@ public final class AgentWebServer implements AutoCloseable {
                     if (!sr.ready()) {
                         String reason = "总结模型不可用：" + sr.detail()
                                 + "。改 agent.properties 的 model.summarizer.* 后重启服务。";
-                        session.error(reason);
-                        log.note(reason);
-                        metrics.runFailed(System.currentTimeMillis() - startedAt);
+                        log.failed(RunFailure.MODEL_UNAVAILABLE.code(), reason);
+                        metrics.runFailed(RunFailure.MODEL_UNAVAILABLE.code(),
+                                System.currentTimeMillis() - startedAt);
+                        session.error(RunFailure.MODEL_UNAVAILABLE.code(), reason, requestId);
                         return;
                     }
                     log.note("分工：收集 " + config.model() + " → 总结 " + summarizer.model()
@@ -1206,10 +1211,12 @@ public final class AgentWebServer implements AutoCloseable {
                 log.done(result, session.deltaCount(), session.toolCallCount());
                 metrics.runFinished(result.stopReason(), System.currentTimeMillis() - startedAt);
             } catch (Exception e) {
+                // 分类在这里做：异常已经飞出来了，再晚就没有机会判断"用户下一步该做什么"
+                RunFailure failure = RunFailure.classify(e);
                 String message = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-                session.error(message);
-                log.error(e);
-                metrics.runFailed(System.currentTimeMillis() - startedAt);
+                log.error(failure.code(), e);
+                metrics.runFailed(failure.code(), System.currentTimeMillis() - startedAt);
+                session.error(failure.code(), message, requestId);
             } finally {
                 // 名额必须还：漏还一次，并发上限就永久少一个，跑久了服务会变成"永不接单"
                 runSlots.release();

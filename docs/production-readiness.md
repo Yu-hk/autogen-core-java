@@ -35,11 +35,13 @@
 前端配套：`conv.id` 存 localStorage，刷新页面自动拉 `/api/conversations?conversationId=` 把上次对话画回来；
 顺手修掉「停止按钮传错参数」——之前传的是 conversationId，服务端 `/api/stop` 要 sessionId，导致点了没反应。
 
-**P2 中的四项也已落地**（见零之三）：前端有了 vitest（21 条）、SSE 支持 `Last-Event-ID` 断点续传、
+**P2 中的四项也已落地**（见零之三）：前端有了 vitest（29 条）、SSE 支持 `Last-Event-ID` 断点续传、
 全部响应带安全头（CSP 分严格/宽松两套）、`/api/openapi.json` 提供 OpenAPI 3.1 描述。
 
-**仍未做**：错误分类粒度（模型不可用/超时/工具失败仍走同一条 `error` 事件）、小模型提示词回归集、
-快照 TTL 配置项、`/api/docs` 可视化页面（当前建议直接导入 Postman/Apifox）。
+**错误分类也已落地**（见零之四）：`error` 事件带 `code`（模型不可用 / 超时 / 参数不成立 / 内部），
+页面按类型给不同的下一步建议。
+
+**仍未做**：小模型提示词回归集、快照 TTL 配置项、`/api/docs` 可视化页面（当前建议直接导入 Postman/Apifox）。
 
 ## 零之三、进度：P2 四项落地（2026-10-28）
 
@@ -49,6 +51,36 @@
 | SSE 断点续传 | `RunSession` 由"消费即丢的队列"改为"环形事件日志 + 连续序号"（保留窗口 6000 条，下标计算 O(1)）；每条事件带 `id:`，`handleStream` 读 `Last-Event-ID` / `?lastEventId=` 从断点补发；窗口滚过时发 `resync` 让前端重拉全量；会话已回收时发 `expired`（不再返 404，因为 EventSource 拿不到状态码）。前端 `openStream` 不再一断就 `close()`，改为三态回调 `open/reconnecting/closed` | `SseResumeTest` 7 条（序号连续、阻塞等待、terminal 标记、窗口缺口、**读到一半断线后带游标重连**、首次连接从头、未知会话给 expired）；实测一轮 22 条事件，`Last-Event-ID: 1` 重连从 2 接上，不重放不跳号 |
 | 安全响应头 | 所有响应加 `nosniff` / `X-Frame-Options: DENY` / `Referrer-Policy: no-referrer`（URL 里带 `?token=`）/ `Permissions-Policy`；HTML 按页面给 CSP：React 产物 `script-src 'self'`，回退旧单页才放宽 `'unsafe-inline'`；HSTS 默认关（内网 http 开了会把自己锁死），`server.hsts=true` 才下发 | `SecurityHeadersTest` 4 条（基线头、SSE 响应也有、两套 CSP 差异、HSTS 开关）；实测首页拿到严格 CSP |
 | API 契约 | 手写 `src/main/resources/openapi.json`（OpenAPI 3.1，含鉴权说明、11 个路径、错误码），`GET /api/openapi.json` 直出；人读版在 `docs/api.md` | `OpenApiTest` 5 条：结构合法、**文档里每条路径在真服务上不是"路由不存在"**、**代码里每条路由都写进了文档**、每个 operation 有 summary/responses、HTTP 直出与打包一致 |
+
+---
+
+## 零之四、进度：`error` 事件分类（2026-10-28）
+
+原来的问题只有一句：**失败了，用户不知道下一步做什么**。模型没起、任务跑超时、参数传错，
+页面上是同一条红字，唯一能做的动作是"再点一次"——而其中两种情况下重发永远没用。
+
+| 项 | 做法 |
+| --- | --- |
+| 分类判据 | 不是异常类名，而是**用户下一步该做什么**：`model_unavailable`（重发无用，找人）/ `timeout`（缩小范围再发）/ `bad_request`（改输入）/ `internal`（可重发，持续则查日志） |
+| 后端 | `web/RunFailure.classify()` 顺着 `cause` 链判断——`ChatAgent` 会把底层错误包一层 `IllegalStateException`，只看最外层会把所有失败归成 internal；自环 cause 显式防死循环 |
+| 事件 | `error` 事件新增 `code` 与 `requestId`；`requestId` 是**发起运行那次** HTTP 请求的 `X-Request-Id`，在 `launch()` 入口取出后显式传进后台线程（`ThreadLocal` 到那里已经没了） |
+| 指标 | `agentcore_run_failures_total` 从单值改为 `{code}` 分 series；新增一条告警：`model_unavailable` 出现 1 次就该有人去看模型服务 |
+| 日志 | `run-*.jsonl` 的 error 行带 `code`，与控制台 `error[timeout] …` 一致 |
+| 前端 | `errorHint.ts` 按 code 给标题/建议/"重发有没有用"；顶部状态栏放**该做什么**，分隔线放技术原文 + 请求 ID；认不出的 code 退回 internal（服务端先上线新类型、页面还是旧缓存的场景） |
+
+**没有 `tool_failed`**：工具异常在 `ToolRegistry` 里就转成 `{"ok":false,"reason":…}` 交回模型
+自行修正，不会中断整轮运行。硬加一类只会得到永远为 0 的计数。
+
+测试：`RunFailureTest` 8 条（含**包装层里的超时**、自环 cause、code 字符串稳定性）、
+`ErrorEventTest` 3 条（SSE 带 code + requestId 对得上 + 失败按 code 计数、指标分 series、
+旧签名兜底 internal）、前端 `errorHint.test.ts` 8 条。后端 211、前端 29 全绿。
+
+顺手修掉一个真问题：`observability.md` 里那张表原本写的是 `agentcore_run_failures_total`（无 label），
+而代码里改成带 `code` 后空值不输出样本——老测试断言 `... 0.0` 会红。已改为"本轮没失败就不该有样本行"。
+
+**前端测试环境的一个坑**：vite-node 默认把编译中间产物写在系统临时目录，本机安全策略会拦（EPERM），
+且失败方式是**静默的**——被拦住的测试文件在全量运行里直接不出现，单跑却全绿。
+`vitest.config.ts` 设 `cacheDir: '.vitest-cache'` 后解决。
 
 ---
 

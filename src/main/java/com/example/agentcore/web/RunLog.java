@@ -105,9 +105,27 @@ final class RunLog {
         emit(node);
     }
 
-    void error(Throwable error) {
-        print("error " + error.getClass().getSimpleName() + ": " + error.getMessage());
+    /**
+     * 记录一次"已知会失败"的收尾。
+     *
+     * <p>和 {@link #error(String, Throwable)} 的区别是这里没有异常栈可打——模型没配好、
+     * 总结模型缺失，这些都是服务启动时就该被发现的状态，不是代码崩了。分成两个方法是为了
+     * 让日志里"真的出 bug"和"环境没配好"一眼能分开。</p>
+     */
+    void failed(String code, String message) {
+        print("error[" + code + "] " + message);
         ObjectNode node = base("error");
+        node.put("code", code);
+        node.put("type", "RunFailure");
+        node.put("message", message);
+        node.put("millis", elapsed());
+        emit(node);
+    }
+
+    void error(String code, Throwable error) {
+        print("error[" + code + "] " + error.getClass().getSimpleName() + ": " + error.getMessage());
+        ObjectNode node = base("error");
+        node.put("code", code);
         node.put("type", error.getClass().getSimpleName());
         node.put("message", String.valueOf(error.getMessage()));
         node.put("millis", elapsed());

@@ -81,7 +81,9 @@ class ObservabilityTest {
                     "应记录一次启动：" + text);
             assertTrue(text.contains("agentcore_runs_finished_total{reason=\"max_rounds\"} 1.0"),
                     "停止原因应归一化成 max_rounds：" + text);
-            assertTrue(text.contains("agentcore_run_failures_total 0.0"), text);
+            // 失败计数按 code 分 series：这一轮没失败，就不该有任何 code 的样本行
+            assertFalse(text.contains("agentcore_run_failures_total{"),
+                    "本轮没有失败，不该出现失败计数：" + text);
             assertTrue(text.contains("agentcore_run_duration_seconds_count 1.0"),
                     "耗时应进直方图：" + text);
             assertTrue(text.contains("agentcore_run_duration_seconds_bucket{le=\"+Inf\"} 1.0"), text);
