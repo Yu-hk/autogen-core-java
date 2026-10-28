@@ -71,10 +71,16 @@ docker compose up -d --build
 | 会话落库 | 每段对话落 `<data-dir>/conversations/<id>.json`，重启/滚动发布后追问仍带上文；页面刷新自动恢复 | 第十八章末节 + `docs/production-readiness.md` |
 | 可观测性 | `GET /api/metrics`（Prometheus）、`X-Request-Id` 贯通、`access-*.jsonl` / `run-*.jsonl` | **[docs/observability.md](docs/observability.md)** |
 | 密钥外置 | 配置里只写 `${TOOL_BAIDU_AK:}` 这类占位符；真实值走环境变量或 `agent.local.properties`（已 gitignore） | 第三章 |
+| 断线续传 | SSE 每条事件带序号，浏览器重连带 `Last-Event-ID`，服务端从断点补发；补不了会发 `resync`，会话没了发 `expired` | **[docs/api.md](docs/api.md)** 第三节 |
+| 接口契约 | `GET /api/openapi.json`（OpenAPI 3.1，可直接导入 Postman/Apifox）；人读版 | **[docs/api.md](docs/api.md)** |
+| 前端测试 | `cd frontend && npm test`（vitest，21 条：纯函数 / 口令与 401 / SSE 状态 / DOM id 契约） | — |
 
 ```bash
 # 看指标（要口令）
 curl -H "Authorization: Bearer $SERVER_AUTH_TOKEN" http://127.0.0.1:8097/api/metrics
+
+# 接口描述（导进 Postman 就能调）
+curl -H "Authorization: Bearer $SERVER_AUTH_TOKEN" http://127.0.0.1:8097/api/openapi.json > openapi.json
 
 # 按 traceId 追一次请求：浏览器响应头 X-Request-Id 就是它
 jq -c 'select(.requestId=="1a2b3c4d")' target/logs/*.jsonl

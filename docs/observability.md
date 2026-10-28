@@ -60,12 +60,18 @@ jq -c 'select(.event=="done")' /data/logs/run-*.jsonl | jq -s 'sort_by(-.millis)
 | `agentcore_tool_calls_total` | counter | 工具调用次数 |
 | `agentcore_model_retries_total` | counter | 模型重试次数 |
 | `agentcore_sse_streams_total` | counter | SSE 连接数 |
+| `agentcore_sse_resumes_total` | counter | 带游标重连（断点续传）次数。两个 SSE 指标的差值就是"断过几次"，内网链路质量看这个 |
 | `agentcore_http_requests_total{status}` | counter | 按状态码 |
 | `jvm_memory_used_bytes` / `_committed_` / `_max_` | gauge | 堆内存 |
 | `jvm_nonheap_used_bytes` / `jvm_threads_live` | gauge | 元空间、线程数 |
 
 **停止原因是归一化过的**：原始文案是自由文本（"达到最大轮次 4"），直接当 label 会让时序数量
 随每次运行增长，Prometheus 会被打爆。原始文案仍在 `run-*.jsonl` 的 `stopReason` 字段里。
+
+**SSE 续传的两个数怎么用**：`sse_streams_total - sse_resumes_total` 是全新的连接数，
+两者的比值反映断线率。内网正常情况下一场运行只该有 1 条连接；如果比值长期偏高，
+通常是中间有代理掐了长连接（`proxy_read_timeout` 默认 60s，而我们的流可以跑几分钟），
+调代理比改代码更有效。
 
 ## 四、建议的告警（先三条就够）
 

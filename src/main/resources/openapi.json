@@ -1,0 +1,419 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "autogen-core-java 控制台接口",
+    "version": "1.0.0",
+    "description": "多智能体控制台的后端接口。除静态页面外，所有 /api/ 路径都要访问口令。\n\n口令三种带法任选：`Authorization: Bearer <token>`、`X-Auth-Token: <token>`、`?token=<token>`。\n第三种是给 EventSource 用的——浏览器的 SSE 接口加不了自定义请求头。\n\n这个文件是手写的，不是从代码生成的：生成器会把一堆内部结构也暴露出去，读起来更累。代价是\n可能与代码漂移，所以 `OpenApiTest` 会逐条确认文档里的路径真实存在。"
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:8097",
+      "description": "本机默认端口（server.port）"
+    }
+  ],
+  "security": [
+    { "bearerToken": [] },
+    { "queryToken": [] }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "`server.auth-token` 的值。脚本与 curl 用这个。"
+      },
+      "queryToken": {
+        "type": "apiKey",
+        "in": "query",
+        "name": "token",
+        "description": "给 EventSource 用的等价写法。注意它可能出现在代理日志里，别用在多级转发场景。"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": { "type": "string", "description": "给人看的中文原因，页面直接展示" }
+        }
+      },
+      "Member": {
+        "type": "object",
+        "properties": {
+          "key": { "type": "string", "description": "角色标识，与消息里的 source 对应" },
+          "role": { "type": "string", "description": "角色名，页面气泡上的名字" },
+          "tools": { "type": "boolean", "description": "是否挂工具" },
+          "toolset": { "type": "string", "description": "工具集：none / calculator / travel / coding …" },
+          "model": { "type": "string", "enum": ["main", "summarizer"], "description": "用哪套模型" }
+        }
+      },
+      "Scenario": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "task": { "type": "string", "description": "默认任务（请求不带 task 时用它）" },
+          "stopWord": { "type": "string", "description": "出现即结束的标志词" },
+          "maxRounds": { "type": "integer" },
+          "selector": { "type": "boolean" },
+          "members": { "type": "array", "items": { "$ref": "#/components/schemas/Member" } }
+        }
+      },
+      "RunAccepted": {
+        "type": "object",
+        "required": ["sessionId", "conversationId"],
+        "properties": {
+          "sessionId": { "type": "string", "description": "这次运行的流 id，交给 /api/stream" },
+          "conversationId": {
+            "type": "string",
+            "description": "对话 id。下一句追问带上它就能接上上下文；服务端已落盘，重启不丢"
+          },
+          "followUp": { "type": "boolean", "description": "true 表示这是在已有对话上追问" }
+        }
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "ok": { "type": "boolean" },
+          "port": { "type": "integer" },
+          "provider": { "type": "string" },
+          "model": { "type": "string" },
+          "baseUrl": { "type": "string" },
+          "ready": { "type": "boolean", "description": "模型是否可用；false 时运行会立即失败" },
+          "detail": { "type": "string" },
+          "configSource": { "type": "string", "description": "配置来自哪里（classpath / 外部文件 / 本机覆盖层）" },
+          "mapProvider": { "type": "string" },
+          "mapReady": { "type": "boolean" },
+          "mapError": { "type": "string" }
+        }
+      },
+      "Snapshot": {
+        "type": "object",
+        "properties": {
+          "file": { "type": "string", "description": "快照文件名，/api/resume 的 file 参数用它" },
+          "team": { "type": "string" },
+          "round": { "type": "integer" },
+          "messageCount": { "type": "integer" },
+          "stopReason": { "type": "string" },
+          "savedAt": { "type": "string" }
+        }
+      },
+      "ConversationSummary": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "scenario": { "type": "string" },
+          "turns": { "type": "integer" },
+          "messageCount": { "type": "integer" },
+          "updatedAt": { "type": "string" }
+        }
+      },
+      "ConversationDetail": {
+        "allOf": [
+          { "$ref": "#/components/schemas/ConversationSummary" },
+          {
+            "type": "object",
+            "properties": {
+              "history": {
+                "type": "array",
+                "description": "按时间顺序的消息；页面用它在刷新后重建对话区",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "source": { "type": "string" },
+                    "text": { "type": "string" }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "FsEntry": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "maven": { "type": "boolean" },
+          "git": { "type": "boolean" },
+          "blockReason": { "type": "string", "description": "有值表示能看见但不能选（不在工作区白名单内）" }
+        }
+      },
+      "FsList": {
+        "type": "object",
+        "properties": {
+          "path": { "type": "string" },
+          "parent": { "type": "string" },
+          "writable": { "type": "boolean" },
+          "blockReason": { "type": "string" },
+          "total": { "type": "integer" },
+          "truncated": { "type": "boolean" },
+          "entries": { "type": "array", "items": { "$ref": "#/components/schemas/FsEntry" } }
+        }
+      },
+      "StreamEvent": {
+        "type": "object",
+        "description": "SSE 的 data 是一行一个 JSON，字段随 kind 变化。所有事件都带 seq（断点续传的游标）。",
+        "required": ["kind", "seq"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "status", "route", "history", "message", "delta", "event",
+              "tool", "retry", "done", "error", "resync", "expired"
+            ]
+          },
+          "seq": { "type": "integer", "description": "事件序号，从 1 连续递增" }
+        }
+      },
+      "Metrics": {
+        "type": "string",
+        "description": "Prometheus 文本格式（text/plain; version=0.0.4）",
+        "examples": [
+          "# HELP agentcore_runs_started_total 累计发起的运行数\n# TYPE agentcore_runs_started_total counter\nagentcore_runs_started_total 3.0\n"
+        ]
+      }
+    }
+  },
+  "paths": {
+    "/api/health": {
+      "get": {
+        "summary": "服务与模型状态",
+        "description": "页面顶部的状态点用它。ready=false 时发起运行会立刻收到 error 事件而不是干等。",
+        "responses": {
+          "200": {
+            "description": "状态",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Health" } } }
+          },
+          "401": { "description": "没带口令", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/metrics": {
+      "get": {
+        "summary": "Prometheus 指标",
+        "description": "运行数、失败数、停止原因、耗时直方图、工具调用、重试、SSE 连接与续传、HTTP 状态码、JVM 内存与线程。可直接被 Prometheus 抓取（记得用 query 口令或反代注入 header）。",
+        "responses": {
+          "200": {
+            "description": "Prometheus 文本",
+            "content": { "text/plain": { "schema": { "$ref": "#/components/schemas/Metrics" } } }
+          },
+          "401": { "description": "没带口令" }
+        }
+      }
+    },
+    "/api/scenarios": {
+      "get": {
+        "summary": "可选的协作方式",
+        "description": "包含 auto 之外的全部场景；页面左栏用它渲染成员与默认任务。",
+        "responses": {
+          "200": {
+            "description": "场景列表",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Scenario" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fs/list": {
+      "get": {
+        "summary": "浏览可选工作目录",
+        "description": "只列目录，不列文件。范围受 `tool.code.writable-dirs` 白名单约束：白名单之外可以继续往下浏览，但不会被当成工作区（返回 blockReason）。",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "要列哪个目录；不传则从白名单根开始"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "目录内容",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/FsList" } } }
+          },
+          "403": { "description": "路径不在允许范围内" }
+        }
+      }
+    },
+    "/api/run": {
+      "post": {
+        "summary": "发起一次运行",
+        "description": "立刻返回 sessionId（真正的执行在线程池里跑），随后用 `/api/stream?sessionId=` 收事件。\n\n并发上限由 `web.max-concurrent-runs` 控制，超出时返回 429 且带 busy/limit。",
+        "parameters": [
+          {
+            "name": "task",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "用户的问题或要求。scenario=auto 时必填，否则 400"
+          },
+          {
+            "name": "scenario",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string", "default": "auto" },
+            "description": "协作方式 id；auto 表示交给路由自动判断"
+          },
+          {
+            "name": "maxRounds",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer" },
+            "description": "最大轮次；不传用场景默认值（auto 路径下由路由结果决定）"
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "工作目录；必须在白名单内，否则 400"
+          },
+          {
+            "name": "conversationId",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "带上它就是在同一段对话里追问；磁盘上找不到则当成新对话"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "已受理",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunAccepted" } } }
+          },
+          "400": { "description": "参数不合法（没问题、目录不在白名单等）" },
+          "401": { "description": "没带口令" },
+          "429": { "description": "并发已满，等一会儿再试" }
+        }
+      }
+    },
+    "/api/stream": {
+      "get": {
+        "summary": "运行事件流（SSE）",
+        "description": "`text/event-stream`。每条事件形如 `id: 42` + `data: {...}`。\n\n**断点续传**：浏览器重连时会自动带 `Last-Event-ID`，服务端从那条之后接着发，不重放也不丢。\n命令行复现用 `?lastEventId=42`。落后太多、要补的事件已滚出保留窗口时，会先收到一条 `resync`\n（页面据此重拉一次完整对话）；会话已被回收则收到 `expired` 并关闭连接。",
+        "parameters": [
+          { "name": "sessionId", "in": "query", "required": true, "schema": { "type": "string" } },
+          {
+            "name": "lastEventId",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer" },
+            "description": "已收到的最后一条事件序号；等价于 Last-Event-ID 请求头"
+          },
+          {
+            "name": "token",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "口令。EventSource 加不了请求头，所以这里必须支持"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "事件流",
+            "content": { "text/event-stream": { "schema": { "$ref": "#/components/schemas/StreamEvent" } } }
+          }
+        }
+      }
+    },
+    "/api/snapshots": {
+      "get": {
+        "summary": "历史快照列表",
+        "description": "每次运行结束会落一个快照文件。取 200 条以内，按时间倒序。",
+        "responses": {
+          "200": {
+            "description": "快照列表",
+            "content": {
+              "application/json": {
+                "schema": { "type": "array", "items": { "$ref": "#/components/schemas/Snapshot" } }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/conversations": {
+      "get": {
+        "summary": "会话落库查询",
+        "description": "不带 conversationId 返回摘要列表（不含正文）；带上则返回整段对话，页面刷新后用它恢复。",
+        "parameters": [
+          {
+            "name": "conversationId",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "摘要列表或单段详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    { "type": "array", "items": { "$ref": "#/components/schemas/ConversationSummary" } },
+                    { "$ref": "#/components/schemas/ConversationDetail" }
+                  ]
+                }
+              }
+            }
+          },
+          "404": { "description": "指定 id 的对话不存在（过期清理或从未存在）" }
+        }
+      }
+    },
+    "/api/resume": {
+      "post": {
+        "summary": "从快照续跑",
+        "description": "把快照里的消息当历史接着跑，轮次不清零。",
+        "parameters": [
+          { "name": "file", "in": "query", "required": true, "schema": { "type": "string" }, "description": "快照文件名（见 /api/snapshots）" },
+          { "name": "scenario", "in": "query", "required": false, "schema": { "type": "string", "default": "general" } },
+          { "name": "maxRounds", "in": "query", "required": false, "schema": { "type": "integer" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "已受理",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RunAccepted" } } }
+          },
+          "404": { "description": "快照不存在" }
+        }
+      }
+    },
+    "/api/stop": {
+      "post": {
+        "summary": "请求停止",
+        "description": "把停止标志翻起来，运行在当前轮结束时收尾（不是硬中断，正在生成的回答会打完）。",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "in": "query",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "运行 id，不是 conversationId——这两者搞混过一次，接口会一直 404"
+          }
+        ],
+        "responses": {
+          "200": { "description": "已记录停止请求" },
+          "404": { "description": "session 不存在" }
+        }
+      }
+    },
+    "/api/openapi.json": {
+      "get": {
+        "summary": "本文档自身",
+        "description": "可以直接导入 Postman / Apifox。",
+        "responses": {
+          "200": { "description": "OpenAPI 3.1 描述" },
+          "500": { "description": "打包遗漏：openapi.json 不在 jar 里" }
+        }
+      }
+    }
+  }
+}

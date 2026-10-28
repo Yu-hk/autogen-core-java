@@ -113,6 +113,8 @@ export default function App() {
    */
   const [waitedSec, setWaitedSec] = useState(0);
   const lastEventRef = useRef(Date.now());
+  /** 已经就"正在重连"提示过用户；避免每次重试都往时间线上刷一行。 */
+  const reconnectingRef = useRef(false);
   const sessionIdRef = useRef<string | null>(null);
 
   const setRunningBoth = (v: boolean) => {
@@ -170,8 +172,8 @@ export default function App() {
    * 取不到（过期被清、服务端换了部署）就安静地丢掉本地 id，当新对话开始——
    * 这里不该弹错误：用户没做错任何事，只是上次聊得太久了。</p>
    */
-  async function restoreConversation() {
-    const id = localStorage.getItem(CONV_KEY);
+  async function restoreConversation(explicitId?: string) {
+    const id = explicitId || localStorage.getItem(CONV_KEY);
     if (!id) return;
     try {
       const detail = await fetchConversation(id);
@@ -542,7 +544,21 @@ export default function App() {
     const close = openStream(
       sessionId,
       (e) => handleEvent(e),
-      () => {
+      (state) => {
+        if (state === 'open') {
+          reconnectingRef.current = false;
+          return;
+        }
+        if (state === 'reconnecting') {
+          // 浏览器会自己带 Last-Event-ID 重连，服务端从断点补发。这里只要让用户知道
+          // "刚才断了一下，正在补"，而不是把界面锁死——跑得好好的任务没必要因为一次抖动就作废
+          if (!reconnectingRef.current) {
+            reconnectingRef.current = true;
+            addTimeline('speak', '与服务器的流中断，正在从断点续传');
+          }
+          setPhase('连接中断，正在重连…');
+          return;
+        }
         if (runningRef.current) {
           setRunningBoth(false);
           document.querySelectorAll('.snap button').forEach((b) => {
@@ -697,6 +713,17 @@ export default function App() {
       case 'error':
         showError(data.message || '未知错误');
         addTimeline('err', data.message || '未知错误');
+        finish();
+        break;
+      case 'resync':
+        // 断太久，服务端已经把那段事件滚出去了：补不了，重拉一次完整对话再往后跟
+        addTimeline('speak', data.message || '事件缺口，重新拉取完整对话');
+        void restoreConversation(conversationIdRef.current || undefined);
+        break;
+      case 'expired':
+        showError(data.message || '这次运行的连接已失效，重新发起即可。');
+        addTimeline('err', '连接已失效 · 服务可能重启过');
+        setPhase('连接已失效');
         finish();
         break;
       default:

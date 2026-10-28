@@ -34,6 +34,7 @@ final class Metrics {
     private final LongAdder toolCalls = new LongAdder();
     private final LongAdder modelRetries = new LongAdder();
     private final LongAdder sseStreams = new LongAdder();
+    private final LongAdder sseResumes = new LongAdder();
     private final LongAdder durationCount = new LongAdder();
     private final DoubleAdder durationSum = new DoubleAdder();
     private final LongAdder[] durationBuckets = new LongAdder[BUCKETS.length];
@@ -78,6 +79,11 @@ final class Metrics {
 
     void modelRetry() {
         modelRetries.increment();
+    }
+
+    /** 带游标重连的次数。它和 {@link #sseStream()} 的差值就是「断过几次」，内网链路质量看这个。 */
+    void sseResume() {
+        sseResumes.increment();
     }
 
     void sseStream() {
@@ -126,6 +132,7 @@ final class Metrics {
         counter(sb, "agentcore_tool_calls_total", "累计工具调用数", toolCalls.sum());
         counter(sb, "agentcore_model_retries_total", "累计模型重试次数", modelRetries.sum());
         counter(sb, "agentcore_sse_streams_total", "累计 SSE 连接数", sseStreams.sum());
+        counter(sb, "agentcore_sse_resumes_total", "带游标重连（断点续传）次数", sseResumes.sum());
 
         sb.append("# HELP agentcore_runs_finished_total 按停止原因归类的完成运行数\n")
                 .append("# TYPE agentcore_runs_finished_total counter\n");

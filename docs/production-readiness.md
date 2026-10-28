@@ -35,7 +35,20 @@
 前端配套：`conv.id` 存 localStorage，刷新页面自动拉 `/api/conversations?conversationId=` 把上次对话画回来；
 顺手修掉「停止按钮传错参数」——之前传的是 conversationId，服务端 `/api/stop` 要 sessionId，导致点了没反应。
 
-**仍未做**：P2 全部（前端零自动化测试、SSE 无 `Last-Event-ID` 续传、无 CSP/安全头、无 OpenAPI、无快照 TTL 配置项）。
+**P2 中的四项也已落地**（见零之三）：前端有了 vitest（21 条）、SSE 支持 `Last-Event-ID` 断点续传、
+全部响应带安全头（CSP 分严格/宽松两套）、`/api/openapi.json` 提供 OpenAPI 3.1 描述。
+
+**仍未做**：错误分类粒度（模型不可用/超时/工具失败仍走同一条 `error` 事件）、小模型提示词回归集、
+快照 TTL 配置项、`/api/docs` 可视化页面（当前建议直接导入 Postman/Apifox）。
+
+## 零之三、进度：P2 四项落地（2026-10-28）
+
+| 项 | 做法 | 验证结果 |
+| --- | --- | --- |
+| 前端自动化测试 | 引入 vitest 2（`vitest.config.ts` 独立于构建配置，默认 node 环境）；`conversation.test.ts` 测纯函数、`api.test.ts` 测口令存取/401 分类/参数编码/SSE 状态判定（jsdom + 手写 EventSource 替身）、`App.render.test.tsx` 用 react-dom 直接渲染，守 22 个 DOM id 的契约 | 21 条全绿；`npm run typecheck` 0 错误。**未引入 Playwright**：要下 Chromium，收益（端到端冒烟）已经由 CI 的镜像冒烟 + 渲染契约测试覆盖大半 |
+| SSE 断点续传 | `RunSession` 由"消费即丢的队列"改为"环形事件日志 + 连续序号"（保留窗口 6000 条，下标计算 O(1)）；每条事件带 `id:`，`handleStream` 读 `Last-Event-ID` / `?lastEventId=` 从断点补发；窗口滚过时发 `resync` 让前端重拉全量；会话已回收时发 `expired`（不再返 404，因为 EventSource 拿不到状态码）。前端 `openStream` 不再一断就 `close()`，改为三态回调 `open/reconnecting/closed` | `SseResumeTest` 7 条（序号连续、阻塞等待、terminal 标记、窗口缺口、**读到一半断线后带游标重连**、首次连接从头、未知会话给 expired）；实测一轮 22 条事件，`Last-Event-ID: 1` 重连从 2 接上，不重放不跳号 |
+| 安全响应头 | 所有响应加 `nosniff` / `X-Frame-Options: DENY` / `Referrer-Policy: no-referrer`（URL 里带 `?token=`）/ `Permissions-Policy`；HTML 按页面给 CSP：React 产物 `script-src 'self'`，回退旧单页才放宽 `'unsafe-inline'`；HSTS 默认关（内网 http 开了会把自己锁死），`server.hsts=true` 才下发 | `SecurityHeadersTest` 4 条（基线头、SSE 响应也有、两套 CSP 差异、HSTS 开关）；实测首页拿到严格 CSP |
+| API 契约 | 手写 `src/main/resources/openapi.json`（OpenAPI 3.1，含鉴权说明、11 个路径、错误码），`GET /api/openapi.json` 直出；人读版在 `docs/api.md` | `OpenApiTest` 5 条：结构合法、**文档里每条路径在真服务上不是"路由不存在"**、**代码里每条路由都写进了文档**、每个 operation 有 summary/responses、HTTP 直出与打包一致 |
 
 ---
 
@@ -165,13 +178,13 @@ tool.db.sandbox-password=***（非空）
 
 ## 三、P2：质量与体验（可以排后，但别忘）
 
-1. **前端零测试**：`frontend/` 没有 vitest / playwright，`package.json` 只有 dev/build/typecheck/preview。
-   后端 161 条测试全绿，但**前端改了没人拦**。最小成本：vitest 覆盖 `endsWithPromise` 那类纯逻辑 + 3 条 Playwright 冒烟（选目录 → 运行 → 出结果）。
-2. **SSE 断线不续传**：`api.ts` 里 `onerror` 只做提示，服务端不支持 `Last-Event-ID`。
-   浏览器自动重连会**从头推还是丢中间事件**取决于服务端，目前是「重连后继续 poll 队列」，断线期间产生的事件不会补发。
-3. **无安全响应头**：`serveStatic` 只设 `Content-Type` 和 `Cache-Control: no-store`，没有 CSP / `X-Content-Type-Options` / `X-Frame-Options`。
-4. **无 API 契约**：9 个接口全靠 README 和前端约定，没有 OpenAPI，改字段容易悄悄破坏调用方。
+1. ~~**前端零测试**~~ → **已落地**（vitest 21 条：纯函数 / 口令与 401 分类 / SSE 状态判定 / DOM id 契约）。
+2. ~~**SSE 断线不续传**~~ → **已落地**（事件序号 + `Last-Event-ID` 补发 + `resync`/`expired` 兜底）。
+3. ~~**无安全响应头**~~ → **已落地**（CSP 分两套 + nosniff + frame-ancestors + Referrer-Policy）。
+4. ~~**无 API 契约**~~ → **已落地**（`openapi.json` + `docs/api.md`，测试防漂移）。
 5. **错误分类粒度**：模型不可用、超时、工具失败、参数错都走同一条 `error` 事件，前端无法区别对待（可重试 / 不可重试）。
+   现状是页面只能统一显示"出错了"，用户不知道该重试还是改输入。建议给 `error` 事件加 `code` 字段
+   （`model_unavailable` / `timeout` / `tool_failed` / `bad_request`），这是**唯一还在的前端体验级缺口**。
 6. **小模型强依赖提示词**：3B 模型在软提示下会反问用户而不调工具（已实测），提示词一改行为就变。
    **需要一套回归集**（固定 10 个任务 + 断言「至少调了 N 次工具、答案里的关键事实来自文件」），否则调提示词等于盲改。
 
@@ -181,7 +194,7 @@ tool.db.sandbox-password=***（非空）
 
 盘点到的好东西，避免误伤：
 
-- **测试**：161 条全绿，覆盖重试策略、重复调用拦截、断点续跑、流式、路由、工具沙箱、平台差异（`MockChatServer` 做假模型，不依赖网络）。
+- **测试**：后端 200 条 + 前端 21 条全绿，覆盖重试策略、重复调用拦截、断点续跑、流式、路由、工具沙箱、平台差异、SSE 续传、安全头、接口文档一致性（`MockChatServer` 做假模型，不依赖网络）。
 - **失败处理**：`RetryPolicy` + `RetryableToolError` + `ChatAgent` 的重复调用拦截 / 空回复重试 / 「只写计划」兜底纠偏。
 - **工具安全边界**：命令白名单 + 超时强杀 + `write-protect` + 只读目录配置（`tool.code.read-only-dirs`）。
 - **断点续跑**：快照 + `team.resume(state)`，语义与 AutoGen 对齐。

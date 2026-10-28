@@ -155,6 +155,17 @@ public final class AppConfig {
     }
 
     /** 绑定地址是不是本机回环：只有这种情况才允许不带口令对外提供接口。 */
+    /**
+     * 是否下发 HSTS。
+     *
+     * <p>默认关闭，而且不该在内网随手打开：HSTS 的语义是"这个域名以后只能用 https"，
+     * 一旦浏览器记住，再用 http 访问会被直接拦成错误页，而内网多数没配证书。
+     * 真正放在 HTTPS 反代后面时再打开。</p>
+     */
+    public boolean hsts() {
+        return getBoolean("server.hsts", false);
+    }
+
     public boolean bindsLoopback() {
         String host = host().trim().toLowerCase(Locale.ROOT);
         return "127.0.0.1".equals(host) || "localhost".equals(host) || "::1".equals(host);

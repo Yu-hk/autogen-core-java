@@ -137,4 +137,8 @@ export type StreamEvent =
       retries?: number;
       stopReason?: string;
     }
-  | { kind: 'error'; message?: string };
+  | { kind: 'error'; message?: string }
+  // 断线太久、服务端已把那段事件滚出保留窗口：页面应重拉一次完整对话再继续
+  | { kind: 'resync'; seq?: number; message?: string }
+  // 会话已回收（服务重启或这轮结束太久）：重新发起即可，重连没有意义
+  | { kind: 'expired'; message?: string };

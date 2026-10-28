@@ -122,10 +122,19 @@ export async function stopRun(sessionId: string): Promise<void> {
 }
 
 /** 打开 SSE 订阅；返回关闭函数。 */
+/**
+ * 流连接的三态。
+ *
+ * `reconnecting` 是这里的关键：断线**不是**失败，浏览器会自己重连带
+ * `Last-Event-ID`，服务端从断点接着发。旧实现在 onerror 里直接 close，
+ * 等于把浏览器这条免费的重连能力扔了，一次网络抖动就变成「连接断开」。
+ */
+export type StreamState = 'open' | 'reconnecting' | 'closed';
+
 export function openStream(
   sessionId: string,
   onEvent: (e: StreamEvent) => void,
-  onError: (e: HttpError | null) => void,
+  onState: (state: StreamState) => void,
 ): () => void {
   // EventSource 不支持自定义请求头，口令只能放查询参数（服务端同时接受 header 与 ?token=）
   const token = getToken();
@@ -134,17 +143,23 @@ export function openStream(
     encodeURIComponent(sessionId) +
     (token ? '&token=' + encodeURIComponent(token) : '');
   const es = new EventSource(url);
+  es.onopen = () => onState('open');
   es.onmessage = (ev) => {
+    let data: StreamEvent;
     try {
-      onEvent(JSON.parse(ev.data) as StreamEvent);
+      data = JSON.parse(ev.data) as StreamEvent;
     } catch {
-      /* 忽略无法解析的心跳/脏数据 */
+      return; // 心跳或脏数据
     }
+    if (data.kind === 'expired') {
+      // 服务端说这场运行没救了：此时必须自己关，否则浏览器会重连→又收到 expired→死循环
+      es.close();
+    }
+    onEvent(data);
   };
   es.onerror = () => {
-    es.close();
-    // 401 时 EventSource 只会给一个空的 error 事件，这里无法区分，交给上层重新探一次健康
-    onError(null);
+    // CLOSED = 浏览器已经放弃（非 200、内容类型不对等）；CONNECTING = 正在自动重连
+    onState(es.readyState === EventSource.CLOSED ? 'closed' : 'reconnecting');
   };
   return () => es.close();
 }

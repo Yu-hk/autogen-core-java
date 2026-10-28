@@ -55,6 +55,10 @@ jobs:
       - name: 类型检查
         working-directory: frontend
         run: npm run typecheck
+      # 先测再构建：构建会清空并重写 src/main/resources/static，测试失败时不该留下产物
+      - name: 单元测试
+        working-directory: frontend
+        run: npm test
       - name: 构建
         working-directory: frontend
         run: npm run build

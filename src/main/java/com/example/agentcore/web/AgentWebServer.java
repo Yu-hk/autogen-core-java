@@ -291,6 +291,7 @@ public final class AgentWebServer implements AutoCloseable {
     private void route(HttpExchange exchange) throws IOException {
         // 先打 traceId：它要出现在响应头和这一条访问日志里，晚一步就写不进已经发出的响应了
         RequestLog.begin(exchange);
+        applySecurityHeaders(exchange);
         try {
             String path = exchange.getRequestURI().getPath();
             // 静态页不拦：先能打开页面，才有地方输入口令；接口一律要口令
@@ -308,6 +309,7 @@ public final class AgentWebServer implements AutoCloseable {
                     exchange.close();
                 }
                 case "/api/health" -> serveHealth(exchange);
+                case "/api/openapi.json" -> serveOpenApi(exchange);
                 case "/api/metrics" -> serveMetrics(exchange);
                 case "/api/scenarios" -> serveScenarios(exchange);
                 case "/api/fs/list" -> serveFsList(exchange);
@@ -330,6 +332,56 @@ public final class AgentWebServer implements AutoCloseable {
     }
 
     /**
+     * 每个响应都带的安全头。
+     *
+     * <p>这几行不是"合规清单打勾"，而是针对这个服务的具体风险：</p>
+     * <ul>
+     *   <li>{@code X-Content-Type-Options: nosniff} —— 模型产出的内容会经由 API 回到页面，
+     *       一旦有人把某个 JSON 响应当 HTML 打开，没有 nosniff 就可能被当成页面执行；</li>
+     *   <li>{@code X-Frame-Options} + {@code frame-ancestors} —— 内部工具最容易被"顺手嵌一下"，
+     *       嵌进去之后点击劫持就是现成的；</li>
+     *   <li>{@code Referrer-Policy: no-referrer} —— URL 里带着 {@code ?token=}，
+     *       跳外链时不能把它当 Referer 送出去。</li>
+     * </ul>
+     *
+     * <p>CSP 不在这里加：它要按页面分两套（React 产物没有内联脚本，旧单页有），
+     * 见 {@link #serveStatic}。</p>
+     */
+    private void applySecurityHeaders(HttpExchange exchange) {
+        var headers = exchange.getResponseHeaders();
+        headers.set("X-Content-Type-Options", "nosniff");
+        headers.set("X-Frame-Options", "DENY");
+        headers.set("Referrer-Policy", "no-referrer");
+        headers.set("Permissions-Policy", "geolocation=(), microphone=(), camera=()");
+        if (appConfig.hsts()) {
+            headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+        }
+    }
+
+    /**
+     * 页面用的 CSP。
+     *
+     * <p>分两套是因为迁移期的旧单页把脚本和样式都内联在 HTML 里，严格策略会把它整个打黑；
+     * 而正常部署（有 React 产物）不该为了兼容它而永久放宽 script-src ——
+     * 放宽 script-src 等于放弃 CSP 的主要价值。</p>
+     */
+    static String contentSecurityPolicy(boolean legacyInlinePage) {
+        String scriptSrc = legacyInlinePage ? "'self' 'unsafe-inline'" : "'self'";
+        return "default-src 'self'; "
+                + "script-src " + scriptSrc + "; "
+                // style 必须留 inline：React 的 style 属性与一些图表初始化都靠它
+                + "style-src 'self' 'unsafe-inline'; "
+                + "img-src 'self' data: blob:; "
+                + "font-src 'self' data:; "
+                // 只允许同源：SSE、fetch、以及将来的同源接口都走这条
+                + "connect-src 'self'; "
+                + "object-src 'none'; "
+                + "frame-ancestors 'none'; "
+                + "base-uri 'self'; "
+                + "form-action 'self'";
+    }
+
+    /**
      * 静态资源：前端构建产物落在 classpath 的 {@code /static/} 下（index.html + assets/*）。
      *
      * <p>用 React + Vite 重写前端后，{@code npm run build} 的输出目录就是
@@ -339,14 +391,20 @@ public final class AgentWebServer implements AutoCloseable {
      */
     private void serveStatic(HttpExchange exchange, String relative) throws IOException {
         byte[] body = readResource("/static/" + relative);
+        boolean legacyPage = false;
         if (body == null && ("index.html".equals(relative) || "web/index.html".equals(relative))) {
             // 兜底：迁移过渡期，构建产物还没生成时还能用旧的单文件页面；
             // 显式访问 /web/index.html 也直接指到旧页面，避免 404
             body = readResource("/web/index.html");
+            legacyPage = body != null;
         }
         if (body == null) {
             json(exchange, 404, "{\"error\":\"not found: " + relative + "\"}");
             return;
+        }
+        if (relative.endsWith(".html")) {
+            exchange.getResponseHeaders().set("Content-Security-Policy",
+                    contentSecurityPolicy(legacyPage));
         }
         exchange.getResponseHeaders().add("Content-Type", contentTypeOf(relative));
         exchange.getResponseHeaders().add("Cache-Control", "no-store");
@@ -381,6 +439,28 @@ public final class AgentWebServer implements AutoCloseable {
             case "txt" -> "text/plain; charset=utf-8";
             default -> "application/octet-stream";
         };
+    }
+
+    /**
+     * 接口描述文件：{@code openapi.json} 打在 jar 里，跟着版本走。
+     *
+     * <p>不做运行时生成——生成器会把内部结构也写进去，而且一旦反射出错就是启动崩。
+     * 手写 + {@code OpenApiTest} 校验路径存在，是两个选项里更省心的那个。</p>
+     */
+    private void serveOpenApi(HttpExchange exchange) throws IOException {
+        byte[] body = readResource("/openapi.json");
+        if (body == null) {
+            json(exchange, 500, "{\"error\":\"openapi.json 没有被打进 jar\"}");
+            return;
+        }
+        exchange.getResponseHeaders().add("Content-Type", "application/json; charset=utf-8");
+        exchange.getResponseHeaders().add("Cache-Control", "no-store");
+        exchange.sendResponseHeaders(200, body.length);
+        try (OutputStream out = exchange.getResponseBody()) {
+            out.write(body);
+        }
+        metrics.http(200);
+        RequestLog.finish(exchange, 200, accessLog);
     }
 
     private void serveHealth(HttpExchange exchange) throws IOException {
@@ -853,11 +933,7 @@ public final class AgentWebServer implements AutoCloseable {
     /** SSE：轮询会话队列，把 JSON 一条条写出去；空闲时发注释行保活。 */
     private void handleStream(HttpExchange exchange) throws IOException {
         Map<String, String> query = query(exchange);
-        RunSession session = sessions.get(query.getOrDefault("sessionId", ""));
-        if (session == null) {
-            json(exchange, 404, "{\"error\":\"session 不存在\"}");
-            return;
-        }
+        String sessionId = query.getOrDefault("sessionId", "");
 
         exchange.getResponseHeaders().add("Content-Type", "text/event-stream; charset=utf-8");
         exchange.getResponseHeaders().add("Cache-Control", "no-cache");
@@ -867,19 +943,42 @@ public final class AgentWebServer implements AutoCloseable {
         metrics.sseStream();
 
         try (OutputStream out = exchange.getResponseBody()) {
+            // 断线重连间隔。浏览器默认 3 秒，写出来是为了少一次"为什么等这么久"的疑问
+            write(out, "retry: 3000\n\n");
+
+            RunSession session = sessions.get(sessionId);
+            if (session == null) {
+                // 会话已回收（服务重启、或这场运行结束太久）。这里不返回 404：EventSource 收到
+                // 非 200 只会抛一个无信息的 error，页面只能笼统说"连接断开"。用一条正常事件
+                // 说明原因，用户至少知道该重新发起，而不是反复刷新等它自己好。
+                write(out, "data: " + expiredPayload() + "\n\n");
+                return;
+            }
+
+            long cursor = readCursor(exchange, query);
+
+            // 断太久、要补的事件已经被窗口挤掉：补不了就直说，让页面重拉全量。
+            // 静默少一段的后果是页面停在半截对话上，看起来像模型答到一半没了。
+            if (cursor > 0 && session.hasGap(cursor)) {
+                long latest = session.latestSeq();
+                write(out, "id: " + latest + "\n"
+                        + "data: {\"kind\":\"resync\",\"seq\":" + latest
+                        + ",\"message\":\"断线期间的事件已滚出保留窗口，请重新拉取完整对话\"}\n\n");
+                cursor = latest;
+                metrics.sseResume();
+            } else if (cursor > 0) {
+                metrics.sseResume();
+            }
+
             while (true) {
-                String payload = session.poll(15_000);
-                if (payload == null) {
-                    if (session.isTerminal()) {
-                        break;
-                    }
-                    out.write(": keep-alive\n\n".getBytes(StandardCharsets.UTF_8));
-                    out.flush();
+                RunSession.Entry entry = session.pollAfter(cursor, 15_000);
+                if (entry == null) {
+                    write(out, ": keep-alive\n\n");
                     continue;
                 }
-                out.write(("data: " + payload + "\n\n").getBytes(StandardCharsets.UTF_8));
-                out.flush();
-                if (session.isTerminal() && session.isEmpty()) {
+                write(out, "id: " + entry.seq() + "\ndata: " + entry.payload() + "\n\n");
+                cursor = entry.seq();
+                if (entry.terminal()) {
                     break;
                 }
             }
@@ -888,6 +987,40 @@ public final class AgentWebServer implements AutoCloseable {
         } catch (IOException ignored) {
             // 浏览器关了页面，正常断连
         }
+    }
+
+    /**
+     * 客户端已经收到第几条事件。
+     *
+     * <p>优先看 {@code Last-Event-ID}：这是浏览器在自动重连时按 SSE 规范带上的请求头，
+     * 前端什么都不用做。{@code ?lastEventId=} 是给命令行和 curl 复现用的——
+     * 排查"补发到底对不对"时，很难让 curl 触发一次浏览器重连。</p>
+     */
+    private static long readCursor(HttpExchange exchange, Map<String, String> query) {
+        String raw = exchange.getRequestHeaders().getFirst("Last-Event-ID");
+        if (raw == null || raw.isBlank()) {
+            raw = query.get("lastEventId");
+        }
+        if (raw == null || raw.isBlank()) {
+            return 0;
+        }
+        try {
+            return Math.max(0, Long.parseLong(raw.trim()));
+        } catch (NumberFormatException e) {
+            // 客户端给了个非数字：当成从头开始，比 500 好
+            return 0;
+        }
+    }
+
+    private static String expiredPayload() {
+        return "{\"kind\":\"expired\",\"message\":\"这次运行的连接已失效"
+                + "（服务可能重启过，或这轮已结束太久）。重新发起即可。\"}";
+    }
+
+    /** 写一行 SSE 并立刻 flush——增量就是这样一帧帧出去的，攒着就等于没有流式。 */
+    private static void write(OutputStream out, String text) throws IOException {
+        out.write(text.getBytes(StandardCharsets.UTF_8));
+        out.flush();
     }
 
     // ---------- 运行 ----------
