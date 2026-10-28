@@ -901,7 +901,9 @@ python tools/route-check.py
 ![处理流程](docs/diagram-service-flow.png)
 
 交互版：[`docs/archify-service-flow.html`](docs/archify-service-flow.html)（单文件自包含，`?` 看快捷键，`R` 追两点间路径，`F` 进演示态）。
-源稿在 `.archify/workflow-service-flow-20261027-1020/candidate.json`，改流程时改它再重跑 `finalize`。
+源稿在 `.archify/workflow-service-flow-20261028-1630/candidate.json`，改流程时改它再重跑 `finalize`。
+
+图上覆盖的链路是：**页面提交 → 入口闸门（口令 / 并发名额 / 请求 ID）→ `Router.decide` 定装配 → 就绪预检 → `RoundRobinTeam` 派发 → 工具循环 → 先落盘再发 done → SSE 断点续传**。
 
 两处读图时容易被误读的地方：
 
@@ -910,9 +912,15 @@ python tools/route-check.py
 - **事件不走主路径**：`runtime.onEvent` 把事件外抛给 `RunSession` 队列，再由 `/api/stream` 推给页面，
   与主路径是并行的两条线；`route` 事件更早，是 `launch()` 里直接推的，所以页面在模型开口之前就显示"本次由谁回答"。
 
-> 环境记录：本机 **D 盘无法完成 archify 的原子交付**（硬链接释放失败，`nlink` 停在 2），
-> 页面的回执发布必失败；产物改在 C 盘生成后再复制回项目。另外本机没有 Chrome，
-> 需要 `ARCHIFY_CHROME` 指向 Playwright 自带的 chromium，否则 browser-check 报 `spawn UNKNOWN`。
+> 环境记录（在本机生成这张图时踩到的两件事，都不是 archify 的 bug）：
+>
+> 1. **archify 的原子交付依赖 `link → unlink → 校验 nlink == 1`**，而 WorkBuddy 的
+>    `node-safe-delete-shim` 会把 `fs.unlinkSync` 改写成"移入回收站"（rename 语义），
+>    inode 链接数不释放，于是发布必报 `candidate has multiple hard-link names`。
+>    该 shim 对 `os.tmpdir()` 下的路径会绕过（走原生 unlink），所以**把工作目录放在
+>    系统临时目录里就能过**，不必去 D 盘的项目目录里硬扛。
+> 2. **本机的 Google Chrome 起不来**（`spawn UNKNOWN`），需要 `ARCHIFY_CHROME`
+>    指向 Playwright 自带的 chromium，否则 `browser-check` 过不去。
 
 ### 已知局限
 
