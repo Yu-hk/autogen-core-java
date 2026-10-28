@@ -1,0 +1,30 @@
+# ---------- 构建产物 ----------
+target/
+!.mvn/wrapper/maven-wrapper.jar
+frontend/node_modules/
+frontend/dist/
+
+# 说明：src/main/resources/static 是 npm run build 的输出，但**要提交**。
+# 理由：mvn package 直接读它打 jar，不提交的话"只跑 Maven 不跑 npm"就得到一个没有页面的 jar。
+# CI 的 frontend 任务会重新构建它，所以仍然可复现。
+
+# ---------- 运行期数据 ----------
+logs/
+workspace/
+*.log
+
+# ---------- 密钥（绝不提交） ----------
+agent.local.properties
+*.local.properties
+.env
+.env.*
+
+# ---------- IDE / 系统 ----------
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+
+# 文档生成工具的中间产物
+.archify/

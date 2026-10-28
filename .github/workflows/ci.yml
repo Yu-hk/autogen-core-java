@@ -1,0 +1,106 @@
+name: ci
+
+# 三件事分开跑：后端测试、前端构建、镜像构建。
+# 分开的意义是失败原因一眼可见——"测试挂了"和"镜像我这边构建不出来"是两种完全不同的故障。
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # 同一分支连续推送时取消上一轮：跑一次要几分钟，旧的结果没人看
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: 后端测试
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      # verify 而不是 test：顺带确认打包产物与 manifest 没问题
+      # 测试全部走 MockChatServer，不依赖真模型和网络
+      - name: mvn verify
+        run: mvn -B verify
+      - name: 保留测试报告
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+          retention-days: 7
+
+  frontend:
+    name: 前端构建
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: 安装依赖
+        working-directory: frontend
+        run: npm ci
+      - name: 类型检查
+        working-directory: frontend
+        run: npm run typecheck
+      - name: 构建
+        working-directory: frontend
+        run: npm run build
+      # 构建产物是被提交进仓库的（否则 mvn package 出来的 jar 没有页面）。
+      # 这里比对一次：如果源码改了却没重新构建，产物就会过期，构建会在这里红掉。
+      - name: 检查产物是否与源码同步
+        run: git diff --exit-code -- src/main/resources/static
+
+  docker:
+    name: 镜像构建
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # 构建期会跑一遍测试（Dockerfile 的 test 阶段），所以这里不重复 mvn
+      - name: docker build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: autogen-core-java:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: compose 配置校验
+        env:
+          SERVER_AUTH_TOKEN: ci-token-for-config-check
+        run: docker compose config --quiet
+      - name: 冒烟启动（无模型也应能起服务）
+        run: |
+          docker run -d --name smoke \
+            -e SERVER_AUTH_TOKEN=smoke-token-123 \
+            -e MODEL_BASE_URL=http://127.0.0.1:1/v1 \
+            -p 8097:8097 autogen-core-java:ci
+          healthy=0
+          for i in $(seq 1 40); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' \
+              -H 'Authorization: Bearer smoke-token-123' http://127.0.0.1:8097/api/health || true)
+            if [ "$code" = "200" ]; then healthy=1; echo "健康检查通过"; break; fi
+            sleep 2
+          done
+          # 无口令必须 401：这是鉴权真的生效的反向证据
+          unauthorized=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8097/api/metrics)
+          echo "无口令访问 /api/metrics -> $unauthorized"
+          docker logs smoke | tail -30
+          docker rm -f smoke
+          [ "$healthy" = "1" ] && [ "$unauthorized" = "401" ]

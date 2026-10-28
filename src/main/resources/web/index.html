@@ -1,0 +1,1703 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>autogen-core-java · 多智能体控制台</title>
+<style>
+  :root {
+    --bg: #f4f6fa;
+    --panel: #ffffff;
+    --line: #e3e8ef;
+    --line-strong: #cbd5e1;
+    --text: #0f172a;
+    --muted: #64748b;
+    --faint: #94a3b8;
+    --brand: #2563eb;
+    --brand-soft: #eff4ff;
+    --ok: #059669;
+    --warn: #d97706;
+    --danger: #dc2626;
+    --radius: 10px;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+          "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  body { display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ---------- 顶栏 ---------- */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 0 20px;
+    height: 56px;
+    flex: 0 0 auto;
+    background: var(--panel);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .brand { display: flex; align-items: center; gap: 10px; min-width: 0; flex: 0 1 auto; }
+
+  .logo {
+    width: 26px; height: 26px;
+    border-radius: 7px;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    display: grid; place-items: center;
+    color: #fff; font-size: 13px; font-weight: 700;
+    flex: 0 0 auto;
+  }
+
+  .brand h1 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: .2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .brand .sub {
+    color: var(--faint);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .spacer { flex: 1; }
+
+  /* 顶栏只显示"当前在用的是哪个模型"，没有可切换的来源 */
+  .model-chip {
+    font-size: 12px;
+    padding: 4px 9px;
+    border-radius: 6px;
+    background: #f1f5f9;
+    color: var(--text);
+    border: 1px solid var(--line);
+    white-space: nowrap;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--faint);
+    display: inline-block;
+    flex: 0 0 auto;
+  }
+
+  .dot.ok { background: var(--ok); }
+  .dot.bad { background: var(--danger); }
+  .dot.busy { background: var(--warn); animation: pulse 1.2s infinite; }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: .3; }
+  }
+
+  .status-text { font-size: 12.5px; color: var(--muted); white-space: nowrap; }
+
+  /* ---------- 主体 ---------- */
+  main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 268px minmax(0, 1fr) 300px;
+    gap: 12px;
+    padding: 12px;
+    min-height: 0;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .panel-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--line);
+    flex: 0 0 auto;
+  }
+
+  .panel-head h2 {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: .6px;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .panel-body {
+    padding: 12px 14px;
+    overflow-y: auto;
+    flex: 1;
+    min-height: 0;
+  }
+
+  .panel-body::-webkit-scrollbar { width: 8px; }
+  .panel-body::-webkit-scrollbar-thumb {
+    background: #dbe2ea; border-radius: 4px;
+  }
+  .panel-body::-webkit-scrollbar-track { background: transparent; }
+
+  /* 右栏装两块：过程事件在上，历史快照在下 */
+  .right-col {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-height: 0;
+  }
+
+  .right-col .panel:first-child { flex: 1 1 auto; min-height: 0; }
+  .right-col .panel:last-child { flex: 0 0 auto; max-height: 42%; }
+
+  /* ---------- 左栏 ---------- */
+  .empty-mini {
+    font-size: 12px;
+    color: var(--faint);
+    padding: 5px 0;
+    line-height: 1.5;
+  }
+
+  /* 手动指定收进折叠区：默认体验是"只提问"，场景是给演示和排查用的 */
+  .advanced {
+    margin-top: 20px;
+    border-top: 1px solid var(--line);
+    padding-top: 12px;
+  }
+
+  .advanced > summary {
+    font-size: 12px;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+  }
+
+  .advanced > summary::-webkit-details-marker { display: none; }
+
+  .advanced > summary::before { content: '▸'; display: inline-block; width: 12px; }
+  .advanced[open] > summary::before { content: '▾'; }
+
+  .advanced > summary:hover { color: var(--text); }
+
+  .advanced .label { margin-top: 14px; }
+
+  .advanced .scene { padding: 7px 10px; }
+  .advanced .scene .d { display: none; }
+  .advanced .scene:hover .d { display: block; }
+
+  /* 示例问法：点一下填进输入框，不自动发——免得人手一抖就把模型调用花掉了 */
+  .sample {
+    display: block;
+    width: 100%;
+    text-align: left;
+    border: 1px solid var(--line);
+    background: transparent;
+    border-radius: 7px;
+    padding: 7px 10px;
+    margin-bottom: 6px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--muted);
+    font-family: inherit;
+    cursor: pointer;
+    transition: .15s;
+  }
+
+  .sample:hover {
+    border-color: var(--line-strong);
+    color: var(--text);
+  }
+
+  .scene {
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 9px 11px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: .15s;
+  }
+
+  .scene:hover { border-color: var(--line-strong); }
+
+  .scene.on {
+    border-color: var(--brand);
+    background: var(--brand-soft);
+  }
+
+  .scene .t { font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+
+  .scene .d { font-size: 12px; color: var(--muted); line-height: 1.5; }
+
+  .label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: .6px;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin: 16px 0 8px;
+  }
+
+  .label:first-child { margin-top: 0; }
+
+  .member {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 6px 8px;
+    border-radius: 7px;
+    margin-bottom: 3px;
+    transition: .2s;
+  }
+
+  .member.active { background: var(--brand-soft); }
+
+  .avatar {
+    width: 24px; height: 24px;
+    border-radius: 7px;
+    display: grid; place-items: center;
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    flex: 0 0 auto;
+  }
+
+  .member-meta { min-width: 0; flex: 1; }
+
+  .member-meta .n {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .member-meta .r { font-size: 11.5px; color: var(--muted); }
+
+  .badge {
+    font-size: 10px;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: #f1f5f9;
+    color: var(--muted);
+    font-family: var(--mono);
+    flex: 0 0 auto;
+  }
+
+  /* 第二套模型的标记：与工具徽标同尺寸，用另一色区分，避免看成"这个 agent 有两套工具" */
+  .badge.alt {
+    background: #eef2ff;
+    color: #4f46e5;
+  }
+
+  .field { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+
+  .field label { font-size: 12.5px; color: var(--muted); }
+
+  .field input[type=number] {
+    width: 62px;
+    padding: 4px 7px;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    font-family: var(--mono);
+    font-size: 12.5px;
+    color: var(--text);
+    background: #fbfcfe;
+  }
+
+  .field input:focus { outline: 2px solid var(--brand-soft); border-color: var(--brand); }
+
+  .task {
+    font-size: 12px;
+    color: var(--muted);
+    background: #f8fafc;
+    border: 1px dashed var(--line-strong);
+    border-radius: 7px;
+    padding: 8px 10px;
+    line-height: 1.55;
+    width: 100%;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 62px;
+  }
+
+  .task:focus {
+    outline: 2px solid var(--brand-soft);
+    border-color: var(--brand);
+    border-style: solid;
+    color: var(--text);
+  }
+
+  .hint {
+    font-size: 11px;
+    color: var(--faint);
+    margin: 6px 0 12px;
+    line-height: 1.5;
+  }
+
+  button.primary, button.ghost {
+    width: 100%;
+    padding: 9px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    font-family: inherit;
+    transition: .15s;
+    border: 1px solid transparent;
+  }
+
+  button.primary {
+    background: var(--brand);
+    color: #fff;
+  }
+
+  button.primary:hover:not(:disabled) { background: #1d4ed8; }
+
+  button.primary:disabled { background: #b9c6dd; cursor: not-allowed; }
+
+  button.ghost {
+    background: var(--panel);
+    border-color: var(--line);
+    color: var(--text);
+    margin-top: 8px;
+  }
+
+  button.ghost:hover:not(:disabled) { border-color: var(--line-strong); background: #fbfcfe; }
+
+  button.ghost:disabled { color: var(--faint); cursor: not-allowed; }
+
+  .snap {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 9px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    margin-bottom: 6px;
+    font-size: 12px;
+  }
+
+  .snap .info { min-width: 0; flex: 1; }
+
+  .snap .f { font-family: var(--mono); font-size: 11px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .snap .s { color: var(--muted); }
+
+  .snap button {
+    border: 1px solid var(--line-strong);
+    background: var(--panel);
+    color: var(--brand);
+    border-radius: 6px;
+    padding: 3px 9px;
+    font-size: 11.5px;
+    cursor: pointer;
+    font-family: inherit;
+    flex: 0 0 auto;
+  }
+
+  .snap button:hover:not(:disabled) { background: var(--brand-soft); }
+  .snap button:disabled { color: var(--faint); border-color: var(--line); cursor: not-allowed; }
+
+  .empty { font-size: 12px; color: var(--faint); text-align: center; padding: 14px 0; }
+
+  /* ---------- 中栏 ---------- */
+  .thread {
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    min-height: 0;
+    scroll-behavior: smooth;
+  }
+
+  .thread::-webkit-scrollbar { width: 8px; }
+  .thread::-webkit-scrollbar-thumb { background: #dbe2ea; border-radius: 4px; }
+
+  .placeholder {
+    height: 100%;
+    display: grid;
+    place-content: center;
+    text-align: center;
+    color: var(--faint);
+    gap: 6px;
+  }
+
+  .placeholder .big { font-size: 15px; color: var(--muted); }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 14px 0;
+    color: var(--faint);
+    font-size: 11.5px;
+  }
+
+  .divider::before, .divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--line);
+  }
+
+  .msg {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+    align-items: flex-start;
+  }
+
+  .msg .avatar { margin-top: 2px; }
+
+  .msg-main { min-width: 0; flex: 1; }
+
+  .msg-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 3px;
+  }
+
+  .msg-name {
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .msg-role { font-size: 11.5px; color: var(--faint); }
+
+  .bubble {
+    background: #f8fafc;
+    border: 1px solid var(--line);
+    border-radius: 4px 10px 10px 10px;
+    padding: 9px 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-size: 13.5px;
+    line-height: 1.7;
+  }
+
+  .msg.user .bubble {
+    background: var(--brand-soft);
+    border-color: #d6e2fb;
+  }
+
+  .bubble.streaming::after {
+    content: '▍';
+    color: var(--brand);
+    margin-left: 1px;
+    animation: blink 1s steps(1) infinite;
+  }
+
+  @keyframes blink { 50% { opacity: 0; } }
+
+  .tool-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    margin: 6px 0 0;
+    padding: 6px 10px;
+    border-radius: 7px;
+    background: #fffdf5;
+    border: 1px solid #f2e3bd;
+    font-size: 12px;
+    font-family: var(--mono);
+    color: #7c5e10;
+  }
+
+  .tool-line .k { color: #a16207; flex: 0 0 auto; }
+
+  .tool-line .v {
+    color: #57534e;
+    word-break: break-all;
+    line-height: 1.5;
+  }
+
+  .tool-line.done { background: #f5fbf7; border-color: #cfe8db; color: #14532d; }
+  .tool-line.done .k { color: var(--ok); }
+
+  .composer {
+    flex: 0 0 auto;
+    border-top: 1px solid var(--line);
+    padding: 9px 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .stat { display: flex; align-items: baseline; gap: 5px; }
+
+  .stat b {
+    font-family: var(--mono);
+    font-size: 13px;
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  .stop-notice {
+    margin-left: auto;
+    color: var(--brand);
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* ---------- 右栏 ---------- */
+  .timeline { font-size: 12px; }
+
+  .tl-item {
+    display: flex;
+    gap: 8px;
+    padding: 4px 0;
+    border-left: 2px solid var(--line);
+    padding-left: 10px;
+    margin-left: 3px;
+    color: var(--muted);
+    line-height: 1.5;
+  }
+
+  .tl-item.tool { border-left-color: #f0c96a; }
+  .tl-item.retry { border-left-color: #e79a9a; }
+  .tl-item.route { border-left-color: #a78bfa; }
+  .tl-item.speak { border-left-color: #93b4f5; }
+  .tl-item.end { border-left-color: var(--ok); }
+  .tl-item.err { border-left-color: var(--danger); color: var(--danger); }
+
+  .tl-time {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--faint);
+    flex: 0 0 auto;
+    padding-top: 1px;
+  }
+
+  .tl-text { min-width: 0; word-break: break-word; }
+
+  .tl-text b { color: var(--text); font-weight: 600; }
+
+  @media (max-width: 1080px) {
+    /* 单列时改用整页滚动，否则 main 的 flex:1 会把左栏压到视口高度、底部被裁 */
+    html, body { height: auto; min-height: 100%; }
+    body { overflow: auto; }
+
+    header {
+      height: auto;
+      min-height: 56px;
+      padding: 10px 14px;
+      flex-wrap: wrap;
+      gap: 8px 10px;
+    }
+
+    .spacer { flex: 1 1 0; }
+
+    main {
+      grid-template-columns: 1fr;
+      height: auto;
+      flex: none;
+    }
+
+    .panel { max-height: none; }
+    .thread { max-height: 65vh; }
+
+    /* 单列时让左栏自然展开，内部滚动会和整页滚动打架 */
+    .panel-body { max-height: none; overflow: visible; }
+    .right-col .panel:last-child { max-height: none; }
+
+    .brand .sub { display: none; }
+  }
+
+  @media (max-width: 520px) {
+    .status-text { display: none; }
+    .model-chip { display: none; }
+  }
+
+  /* ---------- 工作目录选择 ---------- */
+  .wsrow { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+  .ws-label { color: var(--muted); font-size: 12px; flex: 0 0 auto; }
+
+  .ws-path {
+    flex: 1; min-width: 0; text-align: left;
+    border: 1px dashed var(--line-strong); background: #fff; color: var(--muted);
+    border-radius: 8px; padding: 6px 9px;
+    font: 12px/1.4 var(--mono); cursor: pointer;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .ws-path:hover { border-color: var(--brand); color: var(--brand); background: var(--brand-soft); }
+  .ws-path.custom {
+    border-style: solid; border-color: var(--brand);
+    background: var(--brand-soft); color: #1d4ed8;
+  }
+
+  .ws-modal {
+    position: fixed; inset: 0; z-index: 60;
+    background: rgba(15, 23, 42, .35);
+    display: grid; place-items: center;
+  }
+  .ws-modal[hidden] { display: none; }
+
+  .ws-card {
+    width: min(640px, 92vw); max-height: 78vh;
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 14px; box-shadow: 0 18px 48px rgba(15, 23, 42, .18);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .ws-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px; border-bottom: 1px solid var(--line);
+  }
+  .ws-head strong { font-size: 13px; }
+  .ws-head .ws-x {
+    margin-left: auto; border: 0; background: transparent;
+    color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; padding: 2px 6px;
+  }
+  .ws-head .ws-x:hover { color: var(--danger); }
+
+  .ws-bar { display: flex; gap: 6px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .ws-bar input {
+    flex: 1; min-width: 0; border: 1px solid var(--line-strong); border-radius: 7px;
+    padding: 6px 9px; font: 12px var(--mono); color: var(--text); background: #fff;
+  }
+  .ws-bar input:focus { outline: none; border-color: var(--brand); }
+  .ws-bar button {
+    border: 1px solid var(--line-strong); background: #fff; color: var(--text);
+    border-radius: 7px; padding: 6px 10px; font-size: 12px; cursor: pointer; flex: 0 0 auto;
+  }
+  .ws-bar button:hover { border-color: var(--brand); color: var(--brand); }
+
+  .ws-cur {
+    padding: 7px 14px; border-bottom: 1px solid var(--line);
+    font: 11.5px/1.5 var(--mono); color: var(--muted);
+    word-break: break-all; background: #fafbfd;
+  }
+
+  .ws-list { flex: 1; overflow: auto; padding: 6px 8px 10px; }
+  .ws-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: 7px; cursor: pointer;
+  }
+  .ws-item:hover { background: var(--brand-soft); }
+  .ws-item .ico { color: var(--faint); font-size: 12px; }
+  .ws-item .n { font: 12.5px var(--mono); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ws-item .tag {
+    font-size: 10px; padding: 1px 5px; border-radius: 4px;
+    background: #eef2f7; color: var(--muted); flex: 0 0 auto;
+  }
+  .ws-item .tag.git { background: #ecfdf5; color: #047857; }
+  .ws-item .tag.mvn { background: #fff7ed; color: #b45309; }
+  .ws-item.blocked { opacity: .55; }
+  .ws-item.blocked .n { text-decoration: line-through; }
+  .ws-item .ws-pick {
+    margin-left: auto; flex: none;
+    border: 1px solid var(--line); border-radius: 6px;
+    background: var(--card); color: var(--faint);
+    font: 11.5px var(--sans); padding: 2px 8px; cursor: pointer;
+  }
+  .ws-item .ws-pick:hover {
+    border-color: var(--brand); color: var(--brand); background: var(--brand-soft);
+  }
+  .ws-item:hover .ws-pick { color: var(--brand); }
+
+  .ws-empty { padding: 18px 10px; text-align: center; color: var(--faint); font-size: 12px; }
+
+  .ws-foot {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border-top: 1px solid var(--line); background: #fafbfd;
+  }
+  .ws-warn { flex: 1; font-size: 12px; color: var(--danger); }
+  .ws-warn.ok { color: var(--ok); }
+  .ws-foot button {
+    border: 1px solid var(--brand); background: var(--brand); color: #fff;
+    border-radius: 8px; padding: 7px 14px; font-size: 13px; cursor: pointer; flex: 0 0 auto;
+  }
+  .ws-foot button:disabled { background: var(--line); border-color: var(--line); color: var(--faint); cursor: not-allowed; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="logo">A</div>
+    <div>
+      <h1>autogen-core-java</h1>
+      <div class="sub">多智能体控制台 · 事件流来自运行时本身</div>
+    </div>
+  </div>
+
+  <div class="spacer"></div>
+
+  <span class="dot" id="healthDot"></span>
+  <span class="status-text" id="healthText">检测模型…</span>
+
+  <span class="model-chip" id="modelChip">—</span>
+</header>
+
+<main>
+  <aside class="panel">
+    <div class="panel-head"><h2>提问</h2></div>
+    <div class="panel-body">
+      <textarea class="task" id="taskInput" rows="5" spellcheck="false"
+        placeholder="直接说你想做什么，比如：&#10;帮我规划长沙一日游，橘子洲、岳麓山都要坐标&#10;百万级订单导出方案该怎么设计"></textarea>
+      <div class="hint" id="taskHint">用几句话把要求说清楚就行，不需要选场景。</div>
+
+      <div class="wsrow">
+        <span class="ws-label">工作目录</span>
+        <button class="ws-path" id="wsPath" title="没选目录时无法读写本地文件；点这里选一个项目目录">未指定（点这里选本机目录）</button>
+      </div>
+
+      <button class="primary" id="runBtn">发送</button>
+      <button class="ghost" id="stopBtn" disabled>停止（本轮结束后生效）</button>
+      <button class="ghost" id="newChatBtn" hidden>新对话（丢掉上文）</button>
+
+      <div class="label">试试这些问法</div>
+      <div id="samples"></div>
+
+      <div class="label" id="memberLabel">本次由谁回答</div>
+      <div id="members"><div class="empty-mini">发送后按问题自动分配。</div></div>
+
+      <details class="advanced" id="advanced">
+        <summary>手动指定协作方式（演示用）</summary>
+        <div id="scenes"></div>
+
+        <div class="label">最大轮次</div>
+        <div class="field">
+          <label for="maxRounds">仅手动模式下生效</label>
+          <input type="number" id="maxRounds" min="1" max="8" value="4">
+        </div>
+      </details>
+    </div>
+  </aside>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2>对话</h2>
+      <div class="spacer"></div>
+      <span class="status-text" id="phase">待运行</span>
+    </div>
+
+    <div class="thread" id="thread">
+      <div class="placeholder" id="placeholder">
+        <div class="big">问一句就行，剩下的交给系统</div>
+        <div>要不要查地图、用几个角色、用几个模型，都由问题本身决定，右侧时间线会写明判断依据</div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <div class="stat"><b id="statRound">0</b><span>轮次</span></div>
+      <div class="stat"><b id="statMsg">0</b><span>消息</span></div>
+      <div class="stat"><b id="statDelta">0</b><span>增量片</span></div>
+      <div class="stat"><b id="statTool">0</b><span>工具</span></div>
+      <div class="stop-notice" id="stopReason"></div>
+    </div>
+  </section>
+
+  <aside class="right-col">
+    <section class="panel">
+      <div class="panel-head"><h2>事件时间线</h2></div>
+      <div class="panel-body timeline" id="timeline">
+        <div class="empty">等待事件…</div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head"><h2>会话快照</h2></div>
+      <div class="panel-body" id="snapshots">
+        <div class="empty">暂无快照，跑完一次会自动存档</div>
+      </div>
+    </section>
+  </aside>
+</main>
+
+<!-- 目录选择弹层必须放在脚本之前：脚本在解析到这里时就要绑定它的事件，
+     放在 </script> 之后会拿到 null，整个 init() 直接抛错，页面什么都不渲染 -->
+<div class="ws-modal" id="wsModal" hidden>
+  <div class="ws-card">
+    <div class="ws-head">
+      <strong>选择工作目录</strong>
+      <span style="font-size:11px;color:var(--faint)">模型会在这个目录里读、改、编译</span>
+      <button class="ws-x" id="wsClose" title="关闭">×</button>
+    </div>
+    <div class="ws-bar">
+      <button id="wsUp" title="上一级">↑</button>
+      <input id="wsInput" placeholder="直接输入路径，例如 D:/workspace/abrspro2" spellcheck="false">
+      <button id="wsGo">前往</button>
+    </div>
+    <div class="ws-cur" id="wsCur">—</div>
+    <div class="ws-list" id="wsList"></div>
+    <div class="ws-foot">
+      <span class="ws-warn" id="wsWarn"></span>
+      <button id="wsUse">用这个目录</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const PALETTE = ['#2563eb', '#7c3aed', '#059669', '#d97706', '#0891b2'];
+  const USER_COLOR = '#94a3b8';
+
+  const state = {
+    scenarios: [],
+    // null + auto=true 表示"没指定，让后端按问题判断"
+    scenario: null,
+    auto: true,
+    sessionId: null,
+    // 同一个 id 下的多次提问会接着上文的上下文；null 表示还没开过对话
+    conversationId: null,
+    source: null,
+    running: false,
+    modelReady: false,
+    mapReady: false,
+    mapName: '',
+    mapApplyUrl: '',
+    mapKeyField: '',
+    colorOf: new Map(),
+    roleOf: new Map(),
+    blocks: new Map(),
+    stats: { round: 0, messages: 0, deltas: 0, toolCalls: 0, retries: 0 },
+    startedAt: 0,
+    pinned: true,
+    // 用户选的本机目录；null 表示用服务端配置的默认沙箱
+    workspace: null
+  };
+
+  const $ = id => document.getElementById(id);
+  const thread = $('thread');
+
+  // ---------- 工作目录 ----------
+
+  /**
+   * 工作目录：默认用服务端配置的沙箱，用户点一下就能换成自己本机的项目目录。
+   * 浏览器读不到本地路径，所以目录列表由 /api/fs/list 代劳（只列目录，不读文件内容）。
+   * 选中的路径存在 localStorage，刷新页面不用重选。
+   */
+  function initWorkspace() {
+    const saved = localStorage.getItem('ws.path');
+    if (saved) setWs(saved);
+
+    $('wsPath').onclick = () => openWs(state.workspace || '');
+    $('wsClose').onclick = closeWs;
+    $('wsUp').onclick = () => {
+      const parent = $('wsList').dataset.parent;
+      if (parent) openWs(parent);
+    };
+    $('wsGo').onclick = () => {
+      const p = $('wsInput').value.trim();
+      if (p) openWs(p);
+    };
+    $('wsInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); $('wsGo').click(); }
+    });
+    $('wsUse').onclick = useWs;
+    $('wsModal').addEventListener('click', e => {
+      if (e.target === $('wsModal')) closeWs();
+    });
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape' && !$('wsModal').hidden) closeWs();
+    });
+  }
+
+  function setWs(path) {
+    state.workspace = path || null;
+    const btn = $('wsPath');
+    if (!path) {
+      // 不能写"默认沙箱"：没选目录时，"分析这个项目"这类问题根本没有可看的目录
+      // （只读助手不挂工具），而写代码才会退回服务端的默认沙箱。
+      // 说"默认沙箱"会让用户以为已经能看东西了，然后收到一句"看不到你的项目"。
+      btn.textContent = '未指定（点这里选本机目录）';
+      btn.classList.remove('custom');
+      btn.title = '没选目录时无法读写本地文件；点这里选一个项目目录';
+    } else {
+      btn.textContent = path;
+      btn.classList.add('custom');
+      btn.title = path + '（点击更换）';
+    }
+  }
+
+  function closeWs() { $('wsModal').hidden = true; }
+
+  async function openWs(path) {
+    let data;
+    try {
+      const res = await fetch('/api/fs/list' + (path ? '?path=' + encodeURIComponent(path) : ''));
+      data = await res.json();
+    } catch (e) {
+      // fetch 抛错是网络层失败（服务停了或页签太旧），不是接口报错——
+      // 给出能自查的提示，而不是一句干巴巴的 Failed to fetch。
+      data = { error: '连不上后端服务（' + e.message + '）。多半是这个页签比服务旧：服务重启或换端口后，'
+        + '请刷新页面或改用 ' + location.origin + ' 再打开。' };
+    }
+    $('wsModal').hidden = false;
+
+    if (data.error) {
+      $('wsWarn').textContent = data.error;
+      $('wsWarn').classList.remove('ok');
+      $('wsUse').disabled = true;
+      $('wsList').innerHTML = '';
+      return;
+    }
+
+    const list = $('wsList');
+    list.dataset.path = data.path || '';
+    list.dataset.parent = data.parent || '';
+    $('wsCur').textContent = data.path
+      ? data.path
+      : '选一个起点，点目录进入子目录';
+    if (data.path) $('wsInput').value = data.path;
+
+    list.innerHTML = '';
+    const entries = data.entries || [];
+    if (!entries.length) {
+      list.innerHTML = '<div class="ws-empty">这个目录下没有子目录</div>';
+    }
+    entries.forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'ws-item' + (item.blockReason ? ' blocked' : '');
+      row.title = item.blockReason || item.path;
+
+      const ico = document.createElement('span');
+      ico.className = 'ico';
+      ico.textContent = item.note === '盘符' || item.note === '根目录' ? '▣' : '▸';
+
+      const name = document.createElement('span');
+      name.className = 'n';
+      name.textContent = item.name;
+
+      row.append(ico, name);
+      if (item.note) row.append(tag(item.note, ''));
+      if (item.git) row.append(tag('git', 'git'));
+      if (item.maven) row.append(tag('maven', 'mvn'));
+      // 点行 = 进入子目录继续逛；点「选它」= 直接把这行定为工作目录。
+      // 两步动作分开，常用路径（列表里直接看到目标项目）一次点击就能选定，
+      // 不必“点进去→再点用这个目录”两跳，更不必手动敲路径。
+      if (!item.blockReason) {
+        const pick = document.createElement('button');
+        pick.className = 'ws-pick';
+        pick.textContent = '选它';
+        pick.title = '把 ' + item.path + ' 设为工作目录';
+        pick.onclick = e => {
+          e.stopPropagation();
+          setWs(item.path);
+          localStorage.setItem('ws.path', item.path);
+          closeWs();
+        };
+        row.append(pick);
+      }
+      row.onclick = () => openWs(item.path);
+      list.append(row);
+    });
+
+    const usable = !!data.path && data.writable;
+    $('wsUse').disabled = !usable;
+    if (data.blockReason) {
+      $('wsWarn').textContent = data.blockReason;
+      $('wsWarn').classList.remove('ok');
+    } else if (!data.path) {
+      $('wsWarn').textContent = '先点进一个目录，再确认选它';
+      $('wsWarn').classList.remove('ok');
+    } else {
+      $('wsWarn').textContent = '选中后模型只在这个目录里读写';
+      $('wsWarn').classList.add('ok');
+    }
+  }
+
+  function tag(text, cls) {
+    const el = document.createElement('span');
+    el.className = 'tag ' + (cls || '');
+    el.textContent = text;
+    return el;
+  }
+
+  function useWs() {
+    if ($('wsUse').disabled) return;
+    const path = $('wsList').dataset.path;
+    if (!path) return;
+    setWs(path);
+    localStorage.setItem('ws.path', path);
+    closeWs();
+  }
+
+  // ---------- 初始化 ----------
+
+  async function init() {
+    bindEvents();
+    initWorkspace();
+    renderSamples();
+    await Promise.all([loadHealth(), loadScenarios(), loadSnapshots()]);
+  }
+
+  /**
+   * 示例问法覆盖五条不同的路：单 agent 带工具 / 两棒分工 / 多角色评审 / 写代码 / 直接回答。
+   * 点一下只填入不发送，用户还能改。
+   */
+  const SAMPLES = [
+    '橘子洲的经纬度是多少',
+    '规划长沙一日游，要景点坐标、附近餐馆、公交时长票价',
+    '百万级订单导出方案该怎么设计',
+    '用 Java 写一个线程安全的 LRU 缓存，写单测并编译运行到通过',
+    '在沙箱数据库里建一张员工表，插几条数据，查出每个部门的平均工资',
+    '怎么给 Git 提交改作者信息'
+  ];
+
+  function renderSamples() {
+    const box = $('samples');
+    box.innerHTML = '';
+    SAMPLES.forEach(text => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'sample';
+      btn.textContent = text;
+      btn.onclick = () => {
+        if (state.running) return;
+        $('taskInput').value = text;
+        $('taskInput').focus();
+      };
+      box.appendChild(btn);
+    });
+  }
+
+  function bindEvents() {
+    $('runBtn').addEventListener('click', startRun);
+    $('stopBtn').addEventListener('click', stopRun);
+    $('newChatBtn').addEventListener('click', newChat);
+
+    // Ctrl/Cmd + Enter 发送：多轮里会连着打好几句，鼠标来回挪太慢
+    $('taskInput').addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        startRun();
+      }
+    });
+
+    $('maxRounds').addEventListener('change', () => {
+      const v = Math.max(1, Math.min(8, Number($('maxRounds').value) || 4));
+      $('maxRounds').value = v;
+    });
+
+    // 用户手动上滚时不要抢回底部
+    thread.addEventListener('scroll', () => {
+      state.pinned = thread.scrollHeight - thread.scrollTop - thread.clientHeight < 48;
+    });
+  }
+
+  // 没有模型来源可选：任务一律交给配置的模型回答
+  const TASK_HINT = '用几句话把要求说清楚就行，不需要选场景。';
+
+  // 旅游场景依赖地图 Key，没配就直说，别等运行时才报错。
+  // 用哪家（高德/百度）由后端配置决定，页面不写死。
+  function mapHint() {
+    const name = state.mapName || '地图服务';
+    const url = state.mapApplyUrl || '对应开放平台控制台';
+    const field = state.mapKeyField || 'tool.map.provider 对应的 Key';
+    return `这个场景要用${name}：去 ${url} 申请 Key，填进 agent.properties 的 ${field} 后重启服务。`
+      + '其余工具（必应搜索 / 景点抓取 / 笔记）无需 Key。';
+  }
+
+  function applyHint() {
+    if (state.auto) {
+      $('taskHint').textContent = TASK_HINT;
+      return;
+    }
+    const needMap = state.scenario && state.scenario.id.startsWith('travel') && !state.mapReady;
+    $('taskHint').textContent = needMap ? mapHint() : TASK_HINT;
+  }
+
+  // 模型信息来自后端配置，页面不再假设一定是 Ollama
+  async function loadHealth() {
+    const dot = $('healthDot');
+    try {
+      const res = await fetch('/api/health');
+      const data = await res.json();
+      // 配了第二套模型时显示「收集 → 总结」，一眼能看出这次是分工跑
+      const twoStage = data.summarizerModel
+        ? data.model + ' → ' + data.summarizerModel
+        : data.model;
+      $('modelChip').textContent = twoStage;
+      $('modelChip').title = data.summarizerModel
+        ? '收集 ' + data.provider + ' @ ' + data.baseUrl
+          + '\n总结 ' + data.summarizerProvider + '：' + data.summarizerDetail
+        : data.provider + ' @ ' + data.baseUrl;
+      state.mapReady = Boolean(data.mapReady);
+      state.mapName = data.mapName || '';
+      state.mapApplyUrl = data.mapApplyUrl || '';
+      state.mapKeyField = data.mapKeyField || '';
+
+      state.modelReady = Boolean(data.ready);
+      if (data.ready) {
+        dot.className = 'dot ok';
+        $('healthText').textContent = data.model + ' 就绪';
+      } else {
+        dot.className = 'dot bad';
+        $('healthText').textContent = data.detail;
+        $('healthText').title = data.detail;
+      }
+    } catch {
+      state.modelReady = false;
+      $('healthText').textContent = '服务不可用';
+      dot.className = 'dot bad';
+    }
+    $('runBtn').disabled = !state.modelReady;
+    applyHint();
+  }
+
+  async function loadScenarios() {
+    const res = await fetch('/api/scenarios');
+    state.scenarios = await res.json();
+
+    // 只挂在折叠区里当演示入口，默认不选中任何一项——默认就是"用户只提问"
+    const box = $('scenes');
+    box.innerHTML = '';
+    state.scenarios.forEach(s => {
+      const el = document.createElement('div');
+      el.className = 'scene';
+      el.dataset.id = s.id;
+      el.innerHTML = `<div class="t">${esc(s.title)}</div><div class="d">${esc(s.description)}</div>`;
+      el.onclick = () => toggleScenario(s.id);
+      box.appendChild(el);
+    });
+  }
+
+  /** 点一下手动指定，再点一下回到自动。 */
+  function toggleScenario(id) {
+    if (state.running) return;
+    const s = state.scenarios.find(x => x.id === id);
+    if (!s) return;
+
+    if (!state.auto && state.scenario && state.scenario.id === id) {
+      state.auto = true;
+      state.scenario = null;
+      paintScenario();
+      applyHint();
+      return;
+    }
+
+    state.auto = false;
+    state.scenario = s;
+    $('taskInput').value = s.task;
+    $('maxRounds').value = s.maxRounds;
+    paintScenario();
+    applyHint();
+  }
+
+  function paintScenario() {
+    const ids = state.scenarios.map(x => x.id);
+    [...$('scenes').children].forEach((el, i) => {
+      const on = !state.auto && state.scenario && ids[i] === state.scenario.id;
+      el.classList.toggle('on', Boolean(on));
+    });
+
+    if (state.auto) {
+      $('memberLabel').textContent = '本次由谁回答';
+      $('members').innerHTML = '<div class="empty-mini">发送后按问题自动分配。</div>';
+      return;
+    }
+    renderMembers(state.scenario);
+  }
+
+  /** 画成员列表，同时把颜色与角色记进 state，供逐字流式渲染用。 */
+  /**
+   * 成员徽标上的工具数。readonly 单独写出来，是因为它和 coding 的区别不在数量，在
+   * "能不能写"——页面上看不出来，用户就会以为分析类问题也能顺手改文件。
+   */
+  function toolBadge(toolset) {
+    switch (toolset) {
+      case 'travel': return '7 tools';
+      case 'coding': return '11 tools';
+      case 'readonly': return '只读 4 tools';
+      case 'calculator': return '1 tool';
+      default: return 'tools';
+    }
+  }
+
+  function renderMembers(s) {
+    state.colorOf.clear();
+    state.roleOf.clear();
+    s.members.forEach((m, i) => {
+      state.colorOf.set(m.key, PALETTE[i % PALETTE.length]);
+      state.roleOf.set(m.key, m.role);
+    });
+
+    $('memberLabel').textContent = '本次由谁回答 · ' + s.title;
+
+    const box = $('members');
+    box.innerHTML = '';
+    s.members.forEach(m => {
+      const el = document.createElement('div');
+      el.className = 'member';
+      el.dataset.agent = m.key;
+      el.innerHTML = `
+        <div class="avatar" style="background:${state.colorOf.get(m.key)}">${esc(m.key.slice(0, 1).toUpperCase())}</div>
+        <div class="member-meta">
+          <div class="n">${esc(m.key)}</div>
+          <div class="r">${esc(m.role)}</div>
+        </div>
+        ${m.tools ? `<span class="badge">${toolBadge(m.toolset)}</span>` : ''}
+        ${m.model === 'summarizer' ? '<span class="badge alt">2nd model</span>' : ''}`;
+      box.appendChild(el);
+    });
+  }
+
+  async function loadSnapshots() {
+    const res = await fetch('/api/snapshots');
+    const list = await res.json();
+    const box = $('snapshots');
+
+    if (!list.length) {
+      box.innerHTML = '<div class="empty">暂无快照，跑完一次会自动存档</div>';
+      return;
+    }
+
+    box.innerHTML = '';
+    list.slice(0, 4).forEach(s => {
+      const el = document.createElement('div');
+      el.className = 'snap';
+      el.innerHTML = `
+        <div class="info">
+          <div class="s">轮次 ${s.round} · ${s.messageCount} 条消息</div>
+          <div class="f" title="${esc(s.stopReason)}">${esc(shorten(s.stopReason, 26))}</div>
+        </div>
+        <button ${state.running ? 'disabled' : ''}>续跑</button>`;
+      el.querySelector('button').onclick = () => resume(s.file);
+      box.appendChild(el);
+    });
+  }
+
+  // ---------- 运行 ----------
+
+  async function startRun() {
+    if (state.running) return;
+
+    const task = $('taskInput').value.trim();
+    if (!task) {
+      $('taskInput').focus();
+      return;
+    }
+
+    // 有 conversationId 就是追问：屏幕上的上文还在，不能清空重来
+    const followUp = !!state.conversationId;
+    if (followUp) {
+      resetCounters();
+      pushDivider('追问 · 接着上一轮');
+    } else {
+      resetStage();
+      pushDivider(state.auto ? '发送 · 自动判断方式' : '开始运行 · ' + state.scenario.title);
+    }
+
+    const q = new URLSearchParams({ task });
+    if (state.conversationId) {
+      q.set('conversationId', state.conversationId);
+    }
+    // 选了本机目录就带上；没选则用服务端配置的默认沙箱
+    if (state.workspace) {
+      q.set('workspace', state.workspace);
+    }
+    if (state.auto) {
+      q.set('scenario', 'auto');
+      // 真实角色要等路由结果回来才知道；追问时成员区已经是上一轮的人，别覆盖
+      if (!followUp) {
+        $('memberLabel').textContent = '本次由谁回答';
+        $('members').innerHTML = '<div class="empty-mini">正在判断该用哪种方式…</div>';
+      }
+    } else {
+      q.set('scenario', state.scenario.id);
+      q.set('maxRounds', $('maxRounds').value);
+    }
+
+    const res = await fetch('/api/run?' + q, { method: 'POST' });
+    const data = await res.json();
+    if (data.error) { showError(data.error); return; }
+    if (data.conversationId) {
+      state.conversationId = data.conversationId;
+      updateNewChatButton();
+    }
+    // 发出去了就清空，下一句直接打；出错时上面已经 return，输入还在
+    $('taskInput').value = '';
+    connect(data.sessionId);
+  }
+
+  /** 丢掉上文，开一段新的对话。 */
+  function newChat() {
+    if (state.running) return;
+    state.conversationId = null;
+    state.scenario = null;
+    resetStage();
+    $('taskInput').value = '';
+    $('memberLabel').textContent = '本次由谁回答';
+    $('members').innerHTML = '<div class="empty-mini">发送后才知道哪套方式在答</div>';
+    updateNewChatButton();
+    $('taskInput').focus();
+  }
+
+  function updateNewChatButton() {
+    $('newChatBtn').hidden = !state.conversationId;
+  }
+
+  async function resume(file) {
+    if (state.running) return;
+    resetStage();
+
+    // 续跑必须落到具体场景：自动模式下此刻已经拿到上一次的路由结果
+    const q = new URLSearchParams({ file });
+    if (state.auto) {
+      q.set('scenario', state.scenario ? state.scenario.id : 'general');
+    } else {
+      q.set('scenario', state.scenario.id);
+      q.set('maxRounds', $('maxRounds').value);
+    }
+    const res = await fetch('/api/resume?' + q, { method: 'POST' });
+    const data = await res.json();
+    if (data.error) { showError(data.error); return; }
+    if (data.conversationId) {
+      state.conversationId = data.conversationId;
+      updateNewChatButton();
+    }
+    connect(data.sessionId);
+  }
+
+  async function stopRun() {
+    if (!state.sessionId) return;
+    await fetch('/api/stop?sessionId=' + state.sessionId, { method: 'POST' });
+    $('phase').textContent = '本轮结束后停止…';
+  }
+
+  function connect(sessionId) {
+    state.sessionId = sessionId;
+    setRunning(true);
+    addTimeline('speak', '会话 <b>' + sessionId + '</b> 已创建');
+
+    const es = new EventSource('/api/stream?sessionId=' + sessionId);
+    state.source = es;
+
+    es.onmessage = ev => {
+      let data;
+      try { data = JSON.parse(ev.data); } catch { return; }
+      handle(data);
+    };
+
+    es.onerror = () => {
+      if (state.running) {
+        es.close();
+        setRunning(false);
+        $('phase').textContent = '连接断开';
+      }
+    };
+  }
+
+  function handle(data) {
+    switch (data.kind) {
+      case 'status':
+        $('phase').textContent = data.detail || '运行中';
+        break;
+
+      case 'route': {
+        // 后端判断完才发这条：左边换成真实角色，右边留一行依据。
+        // 自动模式不改 state.auto，用户仍然处在"我什么都没选"的状态里
+        const s = state.scenarios.find(x => x.id === data.scenario);
+        if (s) {
+          state.scenario = s;
+          renderMembers(s);
+        } else {
+          $('memberLabel').textContent = '本次由谁回答 · ' + data.title;
+        }
+        $('phase').textContent = '方式：' + data.title;
+        addTimeline('route', '自动选择 <b>' + esc(data.title) + '</b> · ' + esc(data.reason));
+        break;
+      }
+
+      case 'history':
+        if (data.append) {
+          // 追问：屏幕上的上文还在，重绘只会闪一下。只记一行，说明上下文接上了
+          addTimeline('speak', '接着这段对话 · 已有 <b>' + data.count + '</b> 条消息');
+          state.stats.messages = data.count;
+          updateStats();
+          break;
+        }
+        clearThread();
+        pushDivider(data.note || '恢复历史');
+        (data.messages || []).forEach(m => appendMessage(m.source, m.text));
+        state.stats.round = data.round || 0;
+        state.stats.messages = (data.messages || []).length;
+        updateStats();
+        addTimeline('speak', '恢复 <b>' + (data.messages || []).length + '</b> 条历史，轮次 ' + data.round);
+        break;
+
+      case 'retry':
+        state.stats.retries++;
+        updateStats();
+        $('phase').textContent = '调用失败，' + Math.round(data.delayMillis / 1000 * 10) / 10 + ' 秒后重试';
+        addTimeline('retry', '<b>' + esc(data.agent) + '</b> 第 ' + data.attempt + '/' + data.maxRetries
+          + ' 次重试 · ' + esc(shorten(data.reason, 60)));
+        break;
+
+      case 'message':
+        appendMessage(data.source, data.text);
+        state.stats.messages++;
+        updateStats();
+        break;
+
+      case 'delta':
+        appendDelta(data.agent, data.text);
+        state.stats.deltas++;
+        updateStats();
+        break;
+
+      case 'event':
+        if (data.name === 'SpeakingStarted') {
+          if (data.round && data.round !== state.stats.round) {
+            state.stats.round = data.round;
+            addTimeline('speak', '进入第 <b>' + data.round + '</b> 轮');
+            updateStats();
+          }
+          markActive(data.agent, true);
+          addTimeline('speak', '<b>' + data.agent + '</b> 开始发言（round ' + data.round + '）');
+        } else {
+          markActive(data.agent, false);
+          closeBlock(data.agent);
+          addTimeline('speak', '<b>' + data.agent + '</b> 发言结束 · ' + data.length + ' 字');
+        }
+        break;
+
+      case 'tool':
+        if (data.phase === 'request') {
+          state.stats.toolCalls++;
+          addToolLine(data.agent, 'request', `${data.tool}(${data.arguments})`);
+          addTimeline('tool', `<b>${data.agent}</b> 请求工具 ${data.tool}`);
+        } else {
+          addToolLine(data.agent, 'result', `${data.result} · ${data.millis}ms`);
+          addTimeline('tool', `工具返回 <b>${data.result}</b> · ${data.millis}ms`);
+        }
+        updateStats();
+        break;
+
+      case 'done':
+        state.stats.round = data.round;
+        state.stats.messages = data.messages;
+        state.stats.deltas = data.deltas;
+        updateStats();
+        markActive(null, false);
+        Array.from(state.blocks.keys()).forEach(closeBlock);
+        if (data.retries) {
+          addTimeline('retry', '本轮共重试 <b>' + data.retries + '</b> 次');
+        }
+        $('stopReason').textContent = '停止：' + data.stopReason;
+        $('phase').textContent = '已完成';
+        addTimeline('end', '结束 · ' + esc(data.stopReason));
+        finish();
+        loadSnapshots();
+        break;
+
+      case 'error':
+        showError(data.message);
+        addTimeline('err', esc(data.message));
+        finish();
+        break;
+    }
+  }
+
+  function finish() {
+    if (state.source) state.source.close();
+    state.source = null;
+    state.running = false;
+    setRunning(false);
+  }
+
+  // ---------- 渲染 ----------
+
+  function resetStage() {
+    clearThread();
+    $('timeline').innerHTML = '';
+    $('stopReason').textContent = '';
+    state.pinned = true;
+    resetCounters();
+  }
+
+  /** 只清计数器，不动屏幕上的内容：追问时用这个，上文要留着。 */
+  function resetCounters() {
+    state.blocks.clear();
+    state.stats = { round: 0, messages: 0, deltas: 0, toolCalls: 0, retries: 0 };
+    state.startedAt = Date.now();
+    updateStats();
+    markActive(null, false);
+  }
+
+  function clearThread() {
+    thread.innerHTML = '';
+    state.blocks.clear();
+  }
+
+  function pushDivider(text) {
+    const el = document.createElement('div');
+    el.className = 'divider';
+    el.textContent = text;
+    thread.appendChild(el);
+    scrollDown();
+  }
+
+  /** 独立消息（用户任务、历史回放），不参与流式分段。 */
+  function appendMessage(source, text) {
+    const isUserMsg = source === 'user';
+    const color = isUserMsg ? USER_COLOR : (state.colorOf.get(source) || '#475569');
+    const role = isUserMsg ? '任务' : (state.roleOf.get(source) || '');
+
+    const wrap = createMsg(source, color, role, isUserMsg);
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text || '';
+    wrap.querySelector('.msg-main').appendChild(bubble);
+    thread.appendChild(wrap);
+    scrollDown();
+    return bubble;
+  }
+
+  function createMsg(source, color, role, isUserMsg) {
+    const wrap = document.createElement('div');
+    wrap.className = 'msg' + (isUserMsg ? ' user' : '');
+    wrap.innerHTML = `
+      <div class="avatar" style="background:${color}">${esc(source.slice(0, 1).toUpperCase())}</div>
+      <div class="msg-main">
+        <div class="msg-head">
+          <span class="msg-name">${esc(source)}</span>
+          <span class="msg-role">${esc(role)}</span>
+        </div>
+      </div>`;
+    return wrap;
+  }
+
+  /**
+   * 每轮发言一个块。块内按事件真实顺序追加：文本段 → 工具行 → 文本段。
+   * 这样"先调工具再说话"不会被渲染成"先说话再调工具"。
+   */
+  function ensureBlock(agent) {
+    let block = state.blocks.get(agent);
+    if (block) return block;
+
+    const color = state.colorOf.get(agent) || '#475569';
+    const role = state.roleOf.get(agent) || '';
+    const wrap = createMsg(agent, color, role, false);
+    thread.appendChild(wrap);
+
+    block = { wrap, main: wrap.querySelector('.msg-main'), bubble: null };
+    state.blocks.set(agent, block);
+    return block;
+  }
+
+  function appendDelta(agent, text) {
+    const block = ensureBlock(agent);
+    if (!block.bubble) {
+      block.bubble = document.createElement('div');
+      block.bubble.className = 'bubble streaming';
+      block.main.appendChild(block.bubble);
+    }
+    block.bubble.textContent += text;
+    scrollDown();
+  }
+
+  function closeBlock(agent) {
+    const block = state.blocks.get(agent);
+    if (!block) return;
+    if (block.bubble) block.bubble.classList.remove('streaming');
+    // 从活动表移除：下一轮 SpeakingStarted 时重建，避免跨轮复用同一个块
+    state.blocks.delete(agent);
+  }
+
+  function addToolLine(agent, kind, text) {
+    const block = ensureBlock(agent);
+    // 工具调用会打断当前文本段，之后的新文本另起一个气泡
+    if (block.bubble) {
+      block.bubble.classList.remove('streaming');
+      block.bubble = null;
+    }
+    const line = document.createElement('div');
+    line.className = 'tool-line' + (kind === 'result' ? ' done' : '');
+    const shown = text.length > 120 ? text.slice(0, 120) + '…' : text;
+    line.innerHTML = `<span class="k">${kind === 'request' ? '→ 调用' : '← 返回'}</span>
+                      <span class="v" title="${esc(text)}">${esc(shown)}</span>`;
+    block.main.appendChild(line);
+    scrollDown();
+  }
+
+  function markActive(agent, on) {
+    [...document.querySelectorAll('.member')].forEach(el => {
+      el.classList.toggle('active', on && el.dataset.agent === agent);
+    });
+  }
+
+  function addTimeline(cls, html) {
+    const box = $('timeline');
+    if (box.querySelector('.empty')) box.innerHTML = '';
+
+    const now = state.startedAt ? (Date.now() - state.startedAt) / 1000 : 0;
+    const el = document.createElement('div');
+    el.className = 'tl-item ' + cls;
+    el.innerHTML = `<span class="tl-time">${now.toFixed(1)}s</span><span class="tl-text">${html}</span>`;
+    box.appendChild(el);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function updateStats() {
+    $('statRound').textContent = state.stats.round;
+    $('statMsg').textContent = state.stats.messages;
+    $('statDelta').textContent = state.stats.deltas;
+    $('statTool').textContent = state.stats.toolCalls;
+  }
+
+  function setRunning(on) {
+    state.running = on;
+    // 模型没就绪时不允许再点，否则点下去只会换来一句错误提示
+    $('runBtn').disabled = on || !state.modelReady;
+    $('stopBtn').disabled = !on;
+    if (on) $('phase').textContent = '运行中';
+    document.querySelectorAll('.snap button').forEach(b => b.disabled = on);
+  }
+
+  function showError(message) {
+    $('phase').textContent = '出错了';
+    $('stopReason').textContent = message;
+    pushDivider('错误：' + message);
+    setRunning(false);
+  }
+
+  function scrollDown() {
+    if (state.pinned) thread.scrollTop = thread.scrollHeight;
+  }
+
+  function esc(text) {
+    return String(text == null ? '' : text)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function shorten(text, max) {
+    const s = String(text || '');
+    return s.length > max ? s.slice(0, max) + '…' : s;
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,90 @@
+services:
+  agentcore:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: autogen-core-java:latest
+    container_name: autogen-core-java
+    ports:
+      - "8097:8097"
+    environment:
+      # 容器内绑 0.0.0.0，端口与数据目录
+      SERVER_HOST: "0.0.0.0"
+      SERVER_PORT: "8097"
+      SERVER_SNAPSHOT_DIR: "/data/snapshots"
+      WEB_DATA_DIR: "/data"
+      WEB_LOG_DIR: "/data/logs"
+
+      # ---------- 访问口令（必填） ----------
+      # 对外监听 = 必须鉴权，没配服务会直接拒绝启动（硬拦截，不是提示）。
+      # 起服务前先生成一个：
+      #   export SERVER_AUTH_TOKEN=$(openssl rand -hex 16)
+      #   docker compose up -d --build
+      # 页面首次打开会要求输入同一个值，输一次记在本浏览器里。
+      SERVER_AUTH_TOKEN: "${SERVER_AUTH_TOKEN:?请先设置 SERVER_AUTH_TOKEN，例如 export SERVER_AUTH_TOKEN=$(openssl rand -hex 16)}"
+
+      # 并发闸门：同时在跑的任务数，超出的请求立刻 429
+      WEB_MAX_CONCURRENT_RUNS: "2"
+
+      # ---------- 模型（二选一） ----------
+      # 1) 本机 Ollama：容器访问宿主机需用 host.docker.internal
+      MODEL_PROVIDER: "ollama"
+      MODEL_NAME: "qwen2.5:7b"
+      MODEL_BASE_URL: "http://host.docker.internal:11434/v1"
+      # 2) 云端 DeepSeek：把上面三行注释掉，改用下面四行
+      # MODEL_PROVIDER: "deepseek"
+      # MODEL_NAME: "deepseek-chat"
+      # MODEL_BASE_URL: "https://api.deepseek.com/v1"
+      # 密钥不进镜像、不写进 compose：在宿主机 export 之后由这里透传进去
+      DEEPSEEK_API_KEY: "${DEEPSEEK_API_KEY:-}"
+
+      # ---------- 第三方密钥（从宿主机环境透传） ----------
+      # 镜像里 agent.properties 只写了 ${TOOL_BAIDU_AK:} 占位符，真实值走环境变量。
+      # 用法：export TOOL_BAIDU_AK=xxxx 后再 docker compose up -d
+      TOOL_BAIDU_AK: "${TOOL_BAIDU_AK:-}"
+      TOOL_AMAP_KEY: "${TOOL_AMAP_KEY:-}"
+
+      # ---------- 工作目录 ----------
+      # 容器里关掉页面选目录：只在下面这个挂载点里读写，不存在"选到宿主机别的盘"。
+      # 想让它在宿主机某个工程上干活，把 volumes 里的 ./workspace 换成那个工程的路径。
+      TOOL_CODE_ALLOW_SELECT: "false"
+      TOOL_CODE_WORKSPACE: "/workspace"
+
+      # 若用挂载的 agent.properties 覆盖内置配置，可加：
+      # JAVA_OPTS: "-Dagent.config=/config/agent.properties"
+    volumes:
+      # 数据卷：会话（重启/滚动发布不丢）、日志、快照全在这一个卷里
+      - agentcore-data:/data
+      # 固定工作目录：模型在这里读写代码；改 .:/workspace 为宿主机真实路径
+      - ./workspace:/workspace
+
+    # ---------- 加固 ----------
+    # 根文件系统只读：进程能写的只有明确挂出来的卷和 tmpfs。
+    # 想改代码/配置进容器时不被拦——那本来就该重新构建镜像，而不是热改运行时文件。
+    read_only: true
+    tmpfs:
+      - /tmp:exec,size=256m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    # 端口固定是 8097 > 1024，不需要任何 capability；JVM 也不需要
+
+    # 资源上限：避免一次任务把宿主机 CPU/内存吃干（纯 CPU 推理很容易打满）
+    mem_limit: 4g
+    cpus: "4.0"
+
+    # 停止时给 SSE 与运行中的任务留出收尾时间
+    stop_grace_period: 30s
+
+    healthcheck:
+      # 与 Dockerfile 里的 HEALTHCHECK 一致：/api/health 要口令，探活自己带上
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null \"http://127.0.0.1:$${SERVER_PORT}/api/health?token=$${SERVER_AUTH_TOKEN}\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+    restart: unless-stopped
+
+volumes:
+  agentcore-data:
