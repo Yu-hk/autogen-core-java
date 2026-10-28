@@ -1,0 +1,21 @@
+# 统一换行符。
+#
+# 仓库会同时在 Windows（开发机）和 Linux（CI、容器）上被 checkout。不锁这一条的话，
+# Windows 上的 core.autocrlf 会把脚本 checkout 成 CRLF，于是：
+#   - docker-entrypoint.sh 在容器里报 "exec format error / not found"（`#!/bin/sh\r`）；
+#   - 每次提交都显示整个文件被改动，diff 没法看。
+#
+# 默认一律 LF，只有确实需要 CRLF 的格式单独列出来。
+* text=auto eol=lf
+
+# Windows 批处理必须是 CRLF，否则 cmd 解析会出问题
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制，别做任何转换
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.ico binary
+*.jar binary
+*.woff2 binary
