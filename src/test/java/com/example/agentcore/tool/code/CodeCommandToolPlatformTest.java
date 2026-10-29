@@ -98,8 +98,14 @@ class CodeCommandToolPlatformTest {
         JsonNode del = call(registry, "{\"command\":\"del Main.java\"}");
         assertTrue(del.path("blocked").asBoolean(), del.toString());
 
-        // "perform" 里有 "rm "，不能因为子串匹配就把一句正常的命令拦掉
-        JsonNode harmless = call(registry, "{\"command\":\"java -version\"}");
+        // "perform" 里有 "rm "，不能因为子串匹配就把一句正常的命令拦掉。
+        //
+        // 这里用当前平台而不是 WINDOWS：放行的命令会真的去启动 shell，
+        // 而 Windows registry 在 Linux 上会去启动 cmd —— cmd 不存在，
+        // 于是抛 IllegalStateException 而不是返回结果，测试就成了与被测行为无关的假红。
+        // echo 在两个平台的白名单里，也不碰任何文件。
+        JsonNode harmless = call(registry(root, Platform.current()),
+                "{\"command\":\"echo perform\"}");
         assertFalse(harmless.path("blocked").asBoolean(), harmless.toString());
     }
 
