@@ -194,4 +194,48 @@ class AppConfigTest {
         assertEquals(0.4, summarizer.temperature(), 1e-9);
         assertTrue(app.hasSeparateSummarizer());
     }
+
+    /**
+     * 配置项 key → 环境变量名：点和连字符都要换成下划线。
+     *
+     * <p>连字符这条是被容器部署逼出来的：{@code web.data-dir} 早先只把点换成下划线，
+     * 推出的名字是 {@code WEB_DATA-DIR}（带连字符），而 Dockerfile 里写的是
+     * {@code WEB_DATA_DIR}。两边对不上，容器里的数据目录悄悄落回 {@code target/data}，
+     * 非 root 用户写不了，服务启动即失败——而且失败在容器里，不在本机。
+     * 凡是带连字符的配置项都会中这一枪，所以在这里钉死。</p>
+     */
+    @Test
+    void envNameNormalizesDotsAndHyphens() {
+        assertEquals("WEB_DATA_DIR", AppConfig.envName("web.data-dir"));
+        assertEquals("WEB_LOG_DIR", AppConfig.envName("web.log-dir"));
+        assertEquals("WEB_MAX_CONCURRENT_RUNS", AppConfig.envName("web.max-concurrent-runs"));
+        assertEquals("WEB_CONVERSATION_TTL_HOURS", AppConfig.envName("web.conversation-ttl-hours"));
+        assertEquals("TOOL_CODE_READ_ONLY_DIRS", AppConfig.envName("tool.code.read-only-dirs"));
+        assertEquals("TOOL_CODE_WRITABLE_DIRS", AppConfig.envName("tool.code.writable-dirs"));
+        assertEquals("SERVER_AUTH_TOKEN", AppConfig.envName("server.auth-token"));
+        assertEquals("TOOL_AMAP_KEY", AppConfig.envName("tool.amap.key"));
+        // 没有点也没有连字符的，原样大写
+        assertEquals("MODEL_PROVIDER", AppConfig.envName("model.provider"));
+    }
+
+    /**
+     * 环境变量名不能带连字符——那是 shell 语法上不成立的标识符。
+     *
+     * <p>这条是给上面那条兜底的：只要推导出来的名字里还有连字符，
+     * 就说明规则被改坏了，容器部署会再次静默失配。</p>
+     */
+    @Test
+    void envNameNeverContainsHyphen() {
+        String[] keys = {
+                "web.data-dir", "web.log-dir", "web.max-concurrent-runs",
+                "web.conversation-ttl-hours", "web.structured-log",
+                "tool.code.allow-select", "tool.code.write-protect",
+                "tool.code.read-only-dirs", "tool.code.writable-dirs",
+                "tool.notes-dir", "server.auth-token", "server.snapshot-dir"};
+        for (String key : keys) {
+            String env = AppConfig.envName(key);
+            assertFalse(env.contains("-"), key + " 推出的环境变量名里不该有连字符：" + env);
+            assertTrue(env.matches("[A-Z0-9_]+"), key + " 推出的环境变量名不合法：" + env);
+        }
+    }
 }

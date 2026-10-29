@@ -272,13 +272,30 @@ public final class AppConfig {
      *
      * <p>环境变量名由 key 推导：{@code tool.amap.key} → {@code TOOL_AMAP_KEY}，
      * 方便把 Key 放进 CI 密钥而不是写进文件。</p>
+     *
+     * <p>推导时点与连字符都换成下划线：{@code web.data-dir} → {@code WEB_DATA_DIR}。
+     * 连字符这一条是踩过坑的——早先只把点换成下划线，于是
+     * {@code web.data-dir} 推出的名字是 {@code WEB_DATA-DIR}（带连字符），
+     * 而 Dockerfile 里写的是 {@code WEB_DATA_DIR}，两边对不上：
+     * 容器里的数据目录悄悄落回 {@code target/data}，非 root 用户写不了，
+     * 服务启动即失败。凡是带连字符的配置项都会中这一枪。</p>
      */
     public String get(String key, String fallback) {
         String value = pick(
                 System.getProperty(key),
-                System.getenv(key.toUpperCase().replace('.', '_')),
+                System.getenv(envName(key)),
                 values.getProperty(key));
         return value.isBlank() ? fallback : value;
+    }
+
+    /**
+     * 配置项 key → 环境变量名：大写、点与连字符都换成下划线。
+     *
+     * <p>{@code tool.amap.key} → {@code TOOL_AMAP_KEY}，
+     * {@code web.data-dir} → {@code WEB_DATA_DIR}。</p>
+     */
+    public static String envName(String key) {
+        return key.toUpperCase(Locale.ROOT).replace('.', '_').replace('-', '_');
     }
 
     public long getLong(String key, long fallback) {
