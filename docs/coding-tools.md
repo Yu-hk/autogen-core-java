@@ -73,7 +73,7 @@
 
 现在：页面左栏点「工作目录」→ 弹层浏览本机目录（`GET /api/fs/list`，只列目录不读内容，
 带 git / maven 标记）→ 选中后这次 run 的 `workspace` 参数带上去，选中的目录直接成为
-可写根（`POST /api/run?...&workspace=D:/workspace/abrspro2`）。
+可写根（`POST /api/run?...&workspace=D:/workspace/demo-project`）。
 
 三条边界没有因为放开而消失：
 
@@ -237,18 +237,18 @@ db_connections(看到 sandbox 可写、dm8 只读) → db_schema(列表) → db_
 
 ### 8. 只读目录：一次读 3 个真实文档，写一个字都进不去
 
-只读目录配成 `D:/workspace/SmartAssistant/docs`（96 个 `.md`），任务：读前 3 个并各概括一句，
+只读目录配成 `D:/workspace/demo-project/docs`（96 个 `.md`），任务：读前 3 个并各概括一句，
 然后往该目录写 `probe.txt`。
 
 ```
-read_dir {"dir":"D:/workspace/SmartAssistant/docs","glob":"*.md","maxFiles":3,"maxLinesPerFile":40}
+read_dir {"dir":"D:/workspace/demo-project/docs","glob":"*.md","maxFiles":3,"maxLinesPerFile":40}
 ← {"ok":true,"count":3,"candidates":100,"notRead":97,
    "hint":"还有 97 个匹配文件没读：用 glob 缩小范围、换子目录，或调大 maxFiles",
-   "files":[{"path":"D:/workspace/SmartAssistant/docs/admin-visits.md","lines":12,"totalLines":12,
+   "files":[{"path":"D:/workspace/demo-project/docs/admin-visits.md","lines":12,"totalLines":12,
              "truncated":false,"cutBy":"none","content":"   1| # 管理后台访客统计 …"}]}   (81ms)
 
-write_file {"path":"D:/workspace/SmartAssistant/docs/probe.txt","content":"probe"}
-← ERROR: 路径只读：D:/workspace/SmartAssistant/docs/probe.txt 在只读目录 … 内，只能读不能写
+write_file {"path":"D:/workspace/demo-project/docs/probe.txt","content":"probe"}
+← ERROR: 路径只读：D:/workspace/demo-project/docs/probe.txt 在只读目录 … 内，只能读不能写
 ```
 
 一次调用读完 3 个文件（逐个 `read_file` 要 3 次调用、3 次往返），越界写被拒且**文件没被碰过**。
@@ -365,10 +365,10 @@ python tools/run-coding.py auto
 # 自动路由 + 修 bug（先按上面第 3 节预置 src/Calc.java 与 src/Main.java）
 python tools/run-coding.py "src/Calc.java 里的 average 算错了……改到输出 PASS" auto
 # 直接把本地目录当工作目录（可写），改真实仓库——建议先用副本
-CODE_WORKSPACE=D:/workspace/_tmp_agent_ws/abrspro2_probe \
+CODE_WORKSPACE=D:/workspace/_tmp_agent_ws/demo_probe \
   python tools/run-coding.py "给 until() 补 javadoc，只改这一个方法" auto
 # 只读分析一个大文件里的某个方法（around 按符号定位）
-python tools/run-coding.py "用 read_file around=applyUnqualifiedPercentForToday 读 D:/workspace/abrspro2/**/TransCalculateService.java，解释分母口径" auto
+python tools/run-coding.py "用 read_file around=applyUnqualifiedPercentForToday 读 D:/workspace/demo-project/**/TransCalculateService.java，解释分母口径" auto
 # 数据库工具链
 python tools/run-coding.py "在沙箱数据库里建一张 employee 表，插入 5 条数据，按部门统计平均工资" auto
 # 批量读真实目录（要先用 -Dtool.code.read-only-dirs 或 agent.properties 挂上）
@@ -390,12 +390,12 @@ java -cp "target/classes;target/lib/*;D:/path/DmJdbcDriver18.jar" \
 
 ### 8.1 上一轮为什么"处理不了这个需求"
 
-拿 abrspro2（688 个 Java、137 个 mapper XML、6.8 MB 源码，最大单文件 4536 行 / 单方法 558 行）
+拿 demo-project（688 个 Java、137 个 mapper XML、6.8 MB 源码，最大单文件 4536 行 / 单方法 558 行）
 去试，它一个字都改不了。四条墙，按撞上的先后：
 
 | # | 墙 | 表现 |
 | --- | --- | --- |
-| 1 | 配置 | `read-only-dirs` 默认空 → 第一句 `read_file D:/workspace/abrspro2/...` 就报"路径越界" |
+| 1 | 配置 | `read-only-dirs` 默认空 → 第一句 `read_file D:/workspace/demo-project/...` 就报"路径越界" |
 | 2 | 产品定位 | 只读根不能写 → `edit_file` 永远报"要改就先复制到工作目录"。**工具只支持"沙箱从零写"，没有"改存量仓库"的通道** |
 | 3 | 容量 | 30 次工具配额 + `read_file` 800 行/次；一个 4119 行的 Service 读两段就没了 |
 | 4 | 验证 | `exitCode=0` 是唯一硬信号，而真实工程零 JUnit、6 个数据源全指内网，编译一次 61 秒 |
@@ -408,9 +408,9 @@ java -cp "target/classes;target/lib/*;D:/path/DmJdbcDriver18.jar" \
 
 - `GET /api/fs/list?path=` 列本机目录（只列目录、不读内容、带 git / maven 标记、系统目录标红）；
 - 页面左栏「工作目录」→ 弹层浏览 → 选中后存 localStorage；
-- `POST /api/run?...&workspace=D:/workspace/abrspro2` → 选中的目录成为**主根（可写）**，
+- `POST /api/run?...&workspace=D:/workspace/demo-project` → 选中的目录成为**主根（可写）**，
   `list_files` / `read_dir` / `search_code` 不带参数就默认从它开始；
-- 提示词里那句"工作目录是 X"跟着选择走——否则用户选了 abrspro2，模型还以为自己在默认沙箱里。
+- 提示词里那句"工作目录是 X"跟着选择走——否则用户选了 demo-project，模型还以为自己在默认沙箱里。
 
 **② 可控写入**（不是"放开写"，是"可追溯地写"）
 
@@ -431,7 +431,7 @@ java -cp "target/classes;target/lib/*;D:/path/DmJdbcDriver18.jar" \
 另外把**参数级失败**从 `ERROR` 里拆出来（`RetryableToolError` → `{"ok":false,"retryable":true}`）：
 锚点没对上、sha256 过期，这类是模型自己能修好的，不该进熔断计数。
 
-### 8.3 实测（DeepSeek，工作目录 = abrspro2 的副本仓库）
+### 8.3 实测（DeepSeek，工作目录 = demo-project 的副本仓库）
 
 | 轮次 | 任务 | 耗时 | 工具调用 | 结果 |
 | --- | --- | --- | --- | --- |
@@ -445,8 +445,8 @@ java -cp "target/classes;target/lib/*;D:/path/DmJdbcDriver18.jar" \
 第 4 轮模型还主动报告了一处它没动的东西："第 32 行仍是 `until()`，没有 +1，注释描述的是预期口径，
 两者目前不一致；那是逻辑改动，没有你的确认我没有动。"——这正是"改存量工程"该有的行为。
 
-> 实测全程在 `D:/workspace/_tmp_agent_ws/abrspro2_probe`（`git init` 后的副本）里做，
-> 原仓库 `abrspro2` 的 `git status` 与开工前完全一致，一个字没动。
+> 实测全程在 `D:/workspace/_tmp_agent_ws/demo_probe`（`git init` 后的副本）里做，
+> 原仓库 `demo-project` 的 `git status` 与开工前完全一致，一个字没动。
 
 ### 8.4 这一轮踩的坑
 
@@ -473,7 +473,7 @@ java -cp "target/classes;target/lib/*;D:/path/DmJdbcDriver18.jar" \
 
 ### 9.1 现象：最难看的回答不是改错代码
 
-用户已经在页面上选好了 `D:/workspace/abrspro2`，然后问：
+用户已经在页面上选好了 `D:/workspace/demo-project`，然后问：
 
 > **分析一下这个项目**
 

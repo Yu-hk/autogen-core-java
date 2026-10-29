@@ -311,7 +311,7 @@ public class CodeCommandTool {
     /**
      * 超时按命令种类给默认值。
      *
-     * <p>实测：abrspro2 这种多模块工程 {@code mvn -o compile} 一次 61 秒，
+     * <p>实测：demo-project 这种多模块工程 {@code mvn -o compile} 一次 61 秒，
      * 120 秒只够跑一次、跑不了"编译+测试"，而 {@code mvn test} 更久。模型又不会主动调大超时，
      * 它只会在超时后重试同一条命令。所以对长跑程序直接给更宽的默认值，短命令不受影响。</p>
      */

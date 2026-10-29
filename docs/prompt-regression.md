@@ -24,7 +24,7 @@ mvn -o test -Dtest=PromptRegressionTest -Dprompt.regression=true -Dregression.mo
 
 # 换目标项目（默认是当前仓库；分析别的工程时用这个）
 mvn -o test -Dtest=PromptRegressionTest -Dprompt.regression=true \
-    -Dregression.workspace=D:/workspace/abrspro2
+    -Dregression.workspace=D:/workspace/demo-project
 ```
 
 **默认关着**：它跑真模型，一次半小时，放进 `mvn test` 会把每次构建拖死。

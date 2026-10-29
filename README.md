@@ -6,6 +6,27 @@
 >
 > **模型默认跑本机 Ollama**（如 `qwen2.5:7b`），全程不出网、不产生费用；云端 DeepSeek 保留为可切换选项。
 
+## 目录
+
+| 章节 | 内容 |
+| --- | --- |
+| [一](#一与-autogen-的概念对照) | 与 AutoGen 的概念逐条对照 |
+| [二](#二快速开始) | 快速开始 |
+| [三](#三配置agentproperties-是唯一真相) | 配置：`agent.properties` 是唯一真相 |
+| [十](#十可视化控制台) | 可视化控制台 |
+| [十五](#十五自动路由用户只提问不选场景) | 自动路由：用户只提问，不选场景 |
+| [十八](#十八多轮对话与重试把能答一次变成能一直用) | 多轮对话与重试（末节含会话落库） |
+| [十九](#十九写代码11-个本地工具--可选工作目录--跨平台命令) | 写代码：11 个本地工具 + 可选工作目录 |
+| [生产化清单](docs/production-readiness.md) | P1/P2：会话落库、可观测性、SSE 断点续传、安全响应头 |
+
+文档在 [`docs/`](docs/) 下：`api.md`（接口）、`coding-tools.md`（编码工具实测）、
+`intranet-performance.md`（性能实测）、`production-readiness.md`（上线清单）、
+`prompt-regression.md`（提示词回归集）、`observability.md`（可观测性）。
+
+## 许可
+
+[MIT](LICENSE)。依赖的 LangChain4j（Apache-2.0）、Jackson（Apache-2.0）保持各自许可。
+
 ## 一、与 AutoGen 的概念对照
 
 | AutoGen | 本项目 | 说明 |
@@ -31,7 +52,8 @@
 ## 二、快速开始
 
 ```bash
-cd D:\workspace\autogen-core-java
+git clone https://github.com/Yu-hk/autogen-core-java.git
+cd autogen-core-java
 
 # 启动控制台：不带参数就是它
 mvn -q compile exec:java
@@ -1081,7 +1103,7 @@ web.max-conversations=32     # 多轮上下文同时保留几段
 
 ```
 GET  /api/fs/list?path=D:/workspace     → 列子目录（只列目录、不读内容，带 git/maven 标记）
-POST /api/run?scenario=coding&workspace=D:/workspace/abrspro2
+POST /api/run?scenario=coding&workspace=D:/workspace/demo-project
 ```
 
 页面左栏有「工作目录」，点开是弹层：上跳、手输路径、列表点选，选完存 localStorage，
@@ -1144,7 +1166,7 @@ PowerShell（`ls`/`cat` 都是别名）两边都放。写错平台时不是回�
 
 实测里最难看的回答不是改错代码，是这个：
 
-> 用户（已在页面上选了 `D:/workspace/abrspro2`）：**分析一下这个项目**
+> 用户（已在页面上选了 `D:/workspace/demo-project`）：**分析一下这个项目**
 > 助手：你没有贴出项目内容……**我这次没有文件系统和工具权限，读不到**，需要你把内容贴进来。
 
 三重原因叠在一起：这句话不含任何技术域词（"项目"不是域词）→ 路由落到 `general`；
@@ -1174,7 +1196,7 @@ PowerShell（`ls`/`cat` 都是别名）两边都放。写错平台时不是回�
 顺带把页面左栏默认文案从"默认沙箱（由服务端配置）"改成"未指定（点这里选本机目录）"：
 没选目录时确实没有可看的目录，写"默认沙箱"会让人以为已经能看东西了。
 
-实测十一轮（DeepSeek `deepseek-chat`，自动路由）。前六轮是沙箱从零写，7–10 轮是真实的 abrspro2 副本，
+实测十一轮（DeepSeek `deepseek-chat`，自动路由）。前六轮是沙箱从零写，7–10 轮是真实的 demo-project 副本，
 第 11 轮是"只读分析"：
 
 | # | 任务 | 耗时 | 调用 | 结果 |
@@ -1194,8 +1216,8 @@ PowerShell（`ls`/`cat` 都是别名）两边都放。写错平台时不是回�
 第 9、10 轮是同一任务的对照：**95.1s / 22 次 → 38.1s / 7 次**。第 10 轮它还原地报告了
 "第 32 行仍是 `until()`，没有 +1，注释写的是预期口径，两者不一致；那是逻辑改动，没你确认我没动"。
 
-> 全程在 `D:/workspace/_tmp_agent_ws/abrspro2_probe`（`git init` 后的副本）里做，
-> 原仓库 `abrspro2` 的 `git status` 与开工前完全一致，一个字没动。
+> 全程在 `D:/workspace/_tmp_agent_ws/demo_probe`（`git init` 后的副本）里做，
+> 原仓库 `demo-project` 的 `git status` 与开工前完全一致，一个字没动。
 
 ![分析类问题触发只读工具](docs/console-analysis-readonly.png)
 
@@ -1246,5 +1268,5 @@ PowerShell（`ls`/`cat` 都是别名）两边都放。写错平台时不是回�
 `WebApiTest.workspaceSelectablePerRun` 就是钉这个的。
 
 页面这一侧用 Playwright 实测（`tools/shot-workspace.js`）：起点目录 37 个、带 git 标记 19 个、
-带 maven 标记 18 个、被拦的起点 5 个；选 `abrspro2` 后左栏显示 `D:/workspace/abrspro2`、
+带 maven 标记 18 个、被拦的起点 5 个；选 `demo-project` 后左栏显示 `D:/workspace/demo-project`、
 localStorage 同步、页面零报错。截图见 `docs/console-workspace-*.png`。

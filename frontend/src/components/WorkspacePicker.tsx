@@ -111,7 +111,7 @@ export default function WorkspacePicker({ open, onClose, onPick }: Props) {
           <input
             id="wsInput"
             value={input}
-            placeholder="直接输入路径，例如 D:/workspace/abrspro2"
+            placeholder="直接输入路径，例如 D:/workspace/my-project"
             spellCheck={false}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {

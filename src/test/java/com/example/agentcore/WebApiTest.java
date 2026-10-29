@@ -262,7 +262,7 @@ class WebApiTest {
      * 工作目录由页面传上来：/api/run 带 workspace 就用它，/api/fs/list 能把本机目录列给页面。
      *
      * <p>这两条是配套的——浏览器读不到本地路径，所以"选目录"必须由服务端代劳；
-     * 而选完的目录要真的进到这次 run 里，否则用户选了 abrspro2，模型还在默认沙箱里写。</p>
+     * 而选完的目录要真的进到这次 run 里，否则用户选了 demo-project，模型还在默认沙箱里写。</p>
      */
     @Test
     void workspaceSelectablePerRun(@TempDir Path dir, @TempDir Path project) throws Exception {

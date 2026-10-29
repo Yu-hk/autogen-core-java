@@ -103,7 +103,7 @@
 > 「用户选择本身就是授权……所以这里只挡系统目录和路径穿越，不做额外的白名单。」
 
 `CodeWorkspace.rejectReason()` 只挡三类：盘符根、用户主目录本身、`/windows`、`/etc`、`/usr` 这类系统目录。
-**`D:/workspace/abrspro2`、`C:/Users/别人/桌面`、`D:/财务数据` 全都能选。**
+**`D:/workspace/demo-project`、`C:/Users/别人/桌面`、`D:/财务数据` 全都能选。**
 
 配上 `list_files` / `read_file` / `search_code`，等于给每个访问者开了一个**宿主机任意文件读取器**，
 而 `/api/fs/list` 还能从盘符开始逐层浏览（无 `path` 参数时直接返回 C–Z 所有盘符）。
@@ -242,7 +242,7 @@ tool.db.sandbox-password=***（非空）
 | # | 事项 | 关键动作 | 验收标准 | 规模 |
 | --- | --- | --- | --- | --- |
 | 1 | 鉴权 + 租户隔离 | 前置反代做 SSO，或内置一个静态 token + `Authorization` 校验；每个 token 绑定一个 workspace | 无 token 访问 `/api/*` 返回 401；跨 token 看不到彼此会话 | M |
-| 2 | 目录白名单 | `resolveWorkspaceParam` 改为只允许 `tool.code.writable-dirs` 内的路径；关掉 `/api/fs/list` 的盘符浏览 | 传 `D:/workspace/abrspro2` 之外的路径返回 403 | S |
+| 2 | 目录白名单 | `resolveWorkspaceParam` 改为只允许 `tool.code.writable-dirs` 内的路径；关掉 `/api/fs/list` 的盘符浏览 | 传 `D:/workspace/demo-project` 之外的路径返回 403 | S |
 | 3 | 并发闸门 | 全局 `Semaphore(1~2)` + 队列上限 + 超限返回 429；SSE 队列设界 | 第 3 个并发请求立刻拿到 429 和明确文案，而不是排队等 5 分钟 | S |
 | 4 | 密钥外置 | properties 里清空 `tool.baidu.ak` / db password；启动时校验必填项 | 仓库里 grep 不到可用密钥；缺 key 时启动直接失败并说明缺哪个 | S |
 | 5 | 落库 + 启动恢复 | 会话/快照从内存+本地 JSON 改为 SQLite 或 PG | 重启后原 `conversationId` 能继续追问 | M |

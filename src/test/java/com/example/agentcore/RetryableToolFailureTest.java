@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * 参数写错不该把工具禁掉。
  *
- * <p>实测事故：abrspro2 的源文件是 CRLF，模型用 {@code \n} 拼 {@code old_text}，
+ * <p>实测事故：demo-project 的源文件是 CRLF，模型用 {@code \n} 拼 {@code old_text}，
  * 连续两次对不上就把 {@code edit_file} 熔断了——模型接下来只能写 Python 脚本按字节改文件，
  * 工作目录里还留下两个删不掉的临时脚本。</p>
  *

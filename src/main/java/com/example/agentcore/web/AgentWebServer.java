@@ -1251,7 +1251,7 @@ public final class AgentWebServer implements AutoCloseable {
                         // 直接 new CodeWorkspace(root) 会让这两项配置静默失效。
                         CodeWorkspace workspace = CodeWorkspace.forUserSelection(pickedWorkspace);
                         // 提示词里那句"工作目录是 X"必须跟着页面上的选择走，
-                        // 否则用户选了 abrspro2、模型却以为自己该在默认沙箱里干活
+                        // 否则用户选了 demo-project、模型却以为自己该在默认沙箱里干活
                         builder.systemMessage(com.example.agentcore.tool.code.CodePrompt.system(
                                 workspace, com.example.agentcore.tool.code.Platform.current()));
                         session.status("running", "工作目录：" + workspace.describe());

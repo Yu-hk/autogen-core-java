@@ -25,7 +25,7 @@ import java.util.Locale;
  * </ol>
  *
  * <p>{@link #root()} 永远是第一个可写根（主根），工具里"默认从哪开始"都用它，
- * 这样选了 abrspro2 之后 {@code list_files} 不用带参数就能列出项目结构。</p>
+ * 这样选了 demo-project 之后 {@code list_files} 不用带参数就能列出项目结构。</p>
  */
 public final class CodeWorkspace {
 

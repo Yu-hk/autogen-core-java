@@ -141,7 +141,7 @@ public class CodeFilesTool implements com.example.agentcore.agent.MutatingTool {
         List<Object> entries = new ArrayList<>();
         boolean truncated = false;
         // 广度优先，而不是 Files.walkFileTree 的深度优先：截断时也得先给浅层结构。
-        // 实测 abrspro2（915 个文件）在根目录深度优先走，前 200 条全耗在 .workbuddy 一个目录里，
+        // 实测 demo-project（915 个文件）在根目录深度优先走，前 200 条全耗在 .workbuddy 一个目录里，
         // 模型看到的是一堆散文件、等于没看到工程结构，于是它又用同样的参数调了一次——
         // 结果被重复调用拦截，白等一轮，这一轮在内网纯 CPU 上要几分钟。
         Deque<Pending> queue = new ArrayDeque<>();
