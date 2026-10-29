@@ -1,8 +1,12 @@
 const { chromium } = require('playwright');
 
-const CHROME = 'C:/Users/14928/AppData/Local/ms-playwright/chromium-1228/chrome-win64/chrome.exe';
+// Chrome 路径：优先用环境变量 CHROME，其次找 Playwright 自带的 chromium。
+// 写死绝对路径的话，换台机器就找不到浏览器，脚本直接不可用。
+const CHROME = process.env.CHROME || require('os').homedir() +
+  '/AppData/Local/ms-playwright/chromium-1228/chrome-win64/chrome.exe';
 const BASE = 'http://127.0.0.1:8097/';
-const OUT = 'D:/workspace/autogen-core-java/docs';
+// 截图输出目录：默认写到仓库的 docs/ 下（相对当前工作目录），可用 OUT 覆盖。
+const OUT = process.env.OUT || 'docs';
 
 /**
  * 工作目录选择器：不跑模型，只验证"用户能选到本机目录"这条交互。
@@ -53,7 +57,7 @@ const OUT = 'D:/workspace/autogen-core-java/docs';
     await page.reload({ waitUntil: 'networkidle' });
     await page.click('#wsPath');
     await page.waitForSelector('#wsModal:not([hidden]) .ws-item', { timeout: 10000 });
-    await page.fill('#wsInput', 'D:/workspace');
+    await page.fill('#wsInput', process.env.WS_ROOT || 'D:/workspace');
     await page.click('#wsGo');
     await page.waitForFunction(() =>
       document.querySelector('#wsCur').textContent.includes('D:/workspace'),
@@ -62,7 +66,7 @@ const OUT = 'D:/workspace/autogen-core-java/docs';
   }
 
   // 2. 输入 D:/workspace：看 git / maven 标记
-  await page.fill('#wsInput', 'D:/workspace');
+  await page.fill('#wsInput', process.env.WS_ROOT || 'D:/workspace');
   await page.click('#wsGo');
   await page.waitForFunction(() =>
     document.querySelector('#wsCur').textContent.includes('D:/workspace'),
@@ -79,17 +83,19 @@ const OUT = 'D:/workspace/autogen-core-java/docs';
   console.log('样例:', items.slice(0, 4).map(i => `${i.name}[${i.tags}]`).join(' | '));
   await page.screenshot({ path: `${OUT}/console-workspace-list.png` });
 
-  // 3. 进入 abrspro2 并确认选它
-  const target = items.find(i => i.name === 'abrspro2');
-  if (!target) throw new Error('D:/workspace 下没有 abrspro2');
-  await page.click('#wsModal .ws-item:has(.n:text-is("abrspro2"))');
-  await page.waitForFunction(() =>
-    document.querySelector('#wsCur').textContent.includes('abrspro2'),
-    null, { timeout: 10000 });
+  // 3. 进入目标目录并确认选它。目录名可用 WS_NAME 覆盖（默认 demo-project）：
+  // 这个脚本要有一个真实存在的目录才能跑，名字写死别人的项目名不合适。
+  const wsName = process.env.WS_NAME || 'demo-project';
+  const target = items.find(i => i.name === wsName);
+  if (!target) throw new Error('起点目录下没有 ' + wsName + '（用 WS_NAME 指定）');
+  await page.click(`#wsModal .ws-item:has(.n:text-is("${wsName}"))`);
+  await page.waitForFunction((name) =>
+    document.querySelector('#wsCur').textContent.includes(name),
+    wsName, { timeout: 10000 });
   await page.waitForTimeout(300);
   const warn = await page.textContent('#wsWarn');
   console.log('当前目录提示:', warn.trim());
-  await page.screenshot({ path: `${OUT}/console-workspace-abrspro2.png` });
+  await page.screenshot({ path: `${OUT}/console-workspace-${wsName}.png` });
 
   await page.click('#wsUse');
   await page.waitForTimeout(300);
@@ -102,7 +108,7 @@ const OUT = 'D:/workspace/autogen-core-java/docs';
   console.log('页面错误:', errors.length ? errors : '(无)');
   await browser.close();
 
-  if (!stored || !stored.replace(/\\/g, '/').endsWith('abrspro2')) {
+  if (!stored || !stored.replace(/\\/g, '/').endsWith(wsName)) {
     throw new Error('选择没有落到 localStorage：' + stored);
   }
   if (errors.length) {

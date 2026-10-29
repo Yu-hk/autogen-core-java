@@ -1,7 +1,10 @@
 const { chromium } = require('playwright');
 
-const OUT = 'D:/workspace/autogen-core-java/target';
-const CHROME = 'C:/Users/14928/AppData/Local/ms-playwright/chromium-1228/chrome-win64/chrome.exe';
+// 截图输出目录：默认写到仓库的 target/ 下（相对当前工作目录），可用 OUT 覆盖。
+const OUT = process.env.OUT || 'target';
+// Chrome 路径：优先用环境变量 CHROME，其次找 Playwright 自带的 chromium。
+const CHROME = process.env.CHROME || require('os').homedir() +
+  '/AppData/Local/ms-playwright/chromium-1228/chrome-win64/chrome.exe';
 const BASE = 'http://127.0.0.1:8097/';
 
 /**

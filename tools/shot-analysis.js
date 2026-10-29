@@ -1,9 +1,14 @@
 const { chromium } = require('playwright');
 
-const CHROME = 'C:/Users/14928/AppData/Local/ms-playwright/chromium-1228/chrome-win64/chrome.exe';
+// Chrome 路径：优先用环境变量 CHROME，其次找 Playwright 自带的 chromium。
+// 写死绝对路径的话，换台机器就找不到浏览器，脚本直接不可用。
+const CHROME = process.env.CHROME || require('os').homedir() +
+  '/AppData/Local/ms-playwright/chromium-1228/chrome-win64/chrome.exe';
 const BASE = 'http://127.0.0.1:' + (process.env.PORT || '8097') + '/';
-const OUT = 'D:/workspace/autogen-core-java/docs';
-const WS = process.env.WS || 'D:/workspace/_tmp_agent_ws/abrspro2_probe';
+// 截图输出目录：默认写到仓库的 docs/ 下（相对当前工作目录），可用 OUT 覆盖。
+const OUT = process.env.OUT || 'docs';
+// 要分析的工作目录：可用 WS 覆盖（默认取当前工作目录）。
+const WS = process.env.WS || process.cwd();
 
 /**
  * 在页面上问一句「分析一下这个项目」，验证"分析类问题也能看见文件"。
